@@ -68,7 +68,7 @@ class TraceContext(object):
         if not isinstance(span_id, int):
             try:
                 span_id = int(span_id)
-            except ValueError:
+            except (TypeError, ValueError):
                 logging.warning(
                     'The type of span_id should be int, got {}.'.format(
                         span_id.__class__.__name__))

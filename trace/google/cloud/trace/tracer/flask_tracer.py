@@ -34,14 +34,15 @@ class FlaskTracer(ContextTracer):
     :type client: :class:`~google.cloud.trace.client.Client`
     :param client: The client that owns this API object.
     """
-    def __init__(self, client, trace_context=None):
+    def __init__(self, client, trace_context=None, sampler=None):
         if trace_context is None:
             header = get_flask_header()
             trace_context = generate_context_from_header(header)
 
         super(FlaskTracer, self).__init__(
             client=client,
-            trace_context=trace_context)
+            trace_context=trace_context,
+            sampler=sampler)
 
 
 def get_flask_header():

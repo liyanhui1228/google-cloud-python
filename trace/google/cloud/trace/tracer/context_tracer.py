@@ -13,7 +13,10 @@
 # limitations under the License.
 
 from google.cloud.trace.trace import Trace
+from google.cloud.trace.trace_context import TraceContext
 from google.cloud.trace.trace_span import TraceSpan
+
+from google.cloud.trace.samplers.always_on import AlwaysOnSampler
 
 
 class ContextTracer(object):
@@ -27,11 +30,35 @@ class ContextTracer(object):
     """
     _span_stack = []
 
-    def __init__(self, client, trace_context):
+    def __init__(self, client, trace_context=None, sampler=None):
         self.client = client
+
+        if trace_context is None:
+            trace_context = TraceContext()
+
+        if sampler is None:
+            sampler = AlwaysOnSampler()
+
         self.trace_context = trace_context
+        self.sampler = sampler
         self.trace_id = trace_context.trace_id
-        self.trace = self.trace()
+        self.enabled = self.set_enabled()
+        self.cur_trace = self.trace()
+
+    def set_enabled(self):
+        """Determine whether to sample this request or not.
+        If the context forces not tracing, just set enabled to False.
+        Else follow the sampler.
+
+        :rtype: bool
+        :returns: Whether to trace the request or not.
+        """
+        if self.trace_context.enabled is False:
+            return False
+        elif self.sampler.should_sample is True:
+            return True
+        else:
+            return False
 
     def trace(self):
         """Create a trace using the context information.
@@ -39,15 +66,24 @@ class ContextTracer(object):
         :rtype: :class:`~google.cloud.trace.trace.Trace`
         :returns: The Trace object.
         """
-        return Trace(client=self.client, trace_id=self.trace_id)
+        if self.enabled is True:
+            return Trace(client=self.client, trace_id=self.trace_id)
+        else:
+            return NullObject()
 
     def start_trace(self):
         """Start a trace."""
-        self.trace.start()
+        if self.enabled is False:
+            return
+
+        self.cur_trace.start()
 
     def end_trace(self):
         """End a trace."""
-        self.trace.finish()
+        if self.enabled is False:
+            return
+
+        self.cur_trace.finish()
 
     def span(self, name='span'):
         """Create a new span with the trace using the context information.
@@ -58,15 +94,21 @@ class ContextTracer(object):
         :rtype: :class:`~google.cloud.trace.trace_span.TraceSpan`
         :returns: The TraceSpan object.
         """
-        parent_span_id = self.trace_context.span_id
-        span = TraceSpan(name, parent_span_id=parent_span_id)
-        self.trace.spans.append(span)
-        self._span_stack.append(span)
-        self.trace_context.span_id = span.span_id
-        return span
+        if self.enabled is True:
+            parent_span_id = self.trace_context.span_id
+            span = TraceSpan(name, parent_span_id=parent_span_id)
+            self.cur_trace.spans.append(span)
+            self._span_stack.append(span)
+            self.trace_context.span_id = span.span_id
+            return span
+        else:
+            return NullObject()
 
     def start_span(self, name='span'):
         """Start a span."""
+        if self.enabled is False:
+            return
+
         span = self.span(name=name)
         span.start()
 
@@ -75,6 +117,9 @@ class ContextTracer(object):
         span_id in TraceContext as the current span_id which is the peek
         element in the span stack.
         """
+        if self.enabled is False:
+            return
+
         try:
             cur_span = self._span_stack.pop()
         except IndexError:
@@ -86,3 +131,14 @@ class ContextTracer(object):
             self.trace_context.span_id = None
         else:
             self.trace_context.span_id = self._span_stack[-1]
+
+
+class NullObject(object):
+    """Empty object as a helper for faking Trace and TraceSpan when tracing is
+    disabled.
+    """
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
