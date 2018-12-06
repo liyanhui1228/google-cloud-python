@@ -1,4 +1,6 @@
-# Copyright 2017 Google LLC
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,26 +15,11 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
-
-class ClusterOperationStatus(object):
-    class State(object):
-        """
-        The operation state.
-
-        Attributes:
-          UNKNOWN (int): Unused.
-          PENDING (int): The operation has been created.
-          RUNNING (int): The operation is running.
-          DONE (int): The operation is done; either cancelled or completed.
-        """
-        UNKNOWN = 0
-        PENDING = 1
-        RUNNING = 2
-        DONE = 3
+import enum
 
 
 class ClusterStatus(object):
-    class State(object):
+    class State(enum.IntEnum):
         """
         The cluster state.
 
@@ -44,6 +31,7 @@ class ClusterStatus(object):
           DELETING (int): The cluster is being deleted. It cannot be used.
           UPDATING (int): The cluster is being updated. It continues to accept and process jobs.
         """
+
         UNKNOWN = 0
         CREATING = 1
         RUNNING = 2
@@ -51,10 +39,12 @@ class ClusterStatus(object):
         DELETING = 4
         UPDATING = 5
 
-    class Substate(object):
+    class Substate(enum.IntEnum):
         """
+        The cluster substate.
+
         Attributes:
-          UNSPECIFIED (int)
+          UNSPECIFIED (int): The cluster substate is unknown.
           UNHEALTHY (int): The cluster is known to be in an unhealthy state
           (for example, critical daemons are not running or HDFS capacity is
           exhausted).
@@ -65,17 +55,18 @@ class ClusterStatus(object):
 
           Applies to RUNNING state.
         """
+
         UNSPECIFIED = 0
         UNHEALTHY = 1
         STALE_STATUS = 2
 
 
 class LoggingConfig(object):
-    class Level(object):
+    class Level(enum.IntEnum):
         """
-        The Log4j level for job execution. When running an
-        `Apache Hive <http://hive.apache.org/>`_ job, Cloud
-        Dataproc configures the Hive client to an equivalent verbosity level.
+        The Log4j level for job execution. When running an `Apache
+        Hive <http://hive.apache.org/>`__ job, Cloud Dataproc configures the
+        Hive client to an equivalent verbosity level.
 
         Attributes:
           LEVEL_UNSPECIFIED (int): Level is unspecified. Use default level for log4j.
@@ -88,6 +79,7 @@ class LoggingConfig(object):
           FATAL (int): Use FATAL level for log4j.
           OFF (int): Turn off log4j.
         """
+
         LEVEL_UNSPECIFIED = 0
         ALL = 1
         TRACE = 2
@@ -100,7 +92,7 @@ class LoggingConfig(object):
 
 
 class JobStatus(object):
-    class State(object):
+    class State(enum.IntEnum):
         """
         The job state.
 
@@ -121,6 +113,7 @@ class JobStatus(object):
 
           Applies to restartable jobs only.
         """
+
         STATE_UNSPECIFIED = 0
         PENDING = 1
         SETUP_DONE = 8
@@ -132,15 +125,17 @@ class JobStatus(object):
         ERROR = 6
         ATTEMPT_FAILURE = 9
 
-    class Substate(object):
+    class Substate(enum.IntEnum):
         """
+        The job substate.
+
         Attributes:
-          UNSPECIFIED (int)
+          UNSPECIFIED (int): The job substate is unknown.
           SUBMITTED (int): The Job is submitted to the agent.
 
           Applies to RUNNING state.
           QUEUED (int): The Job has been received and is awaiting execution (it may be waiting
-          for a condition to be met). See the \"details\" field for the reason for
+          for a condition to be met). See the "details" field for the reason for
           the delay.
 
           Applies to RUNNING state.
@@ -150,6 +145,7 @@ class JobStatus(object):
 
           Applies to RUNNING state.
         """
+
         UNSPECIFIED = 0
         SUBMITTED = 1
         QUEUED = 2
@@ -157,7 +153,7 @@ class JobStatus(object):
 
 
 class YarnApplication(object):
-    class State(object):
+    class State(enum.IntEnum):
         """
         The application state, corresponding to
         <code>YarnProtos.YarnApplicationStateProto</code>.
@@ -165,7 +161,7 @@ class YarnApplication(object):
         Attributes:
           STATE_UNSPECIFIED (int): Status is unspecified.
           NEW (int): Status is NEW.
-          NEW_SAVING (int): Status is NEW_SAVING.
+          NEW_SAVING (int): Status is NEW\_SAVING.
           SUBMITTED (int): Status is SUBMITTED.
           ACCEPTED (int): Status is ACCEPTED.
           RUNNING (int): Status is RUNNING.
@@ -173,6 +169,7 @@ class YarnApplication(object):
           FAILED (int): Status is FAILED.
           KILLED (int): Status is KILLED.
         """
+
         STATE_UNSPECIFIED = 0
         NEW = 1
         NEW_SAVING = 2
@@ -185,16 +182,76 @@ class YarnApplication(object):
 
 
 class ListJobsRequest(object):
-    class JobStateMatcher(object):
+    class JobStateMatcher(enum.IntEnum):
         """
         A matcher that specifies categories of job states.
 
         Attributes:
           ALL (int): Match all jobs, regardless of state.
           ACTIVE (int): Only match jobs in non-terminal states: PENDING, RUNNING, or
-          CANCEL_PENDING.
+          CANCEL\_PENDING.
           NON_ACTIVE (int): Only match jobs in terminal states: CANCELLED, DONE, or ERROR.
         """
+
         ALL = 0
         ACTIVE = 1
         NON_ACTIVE = 2
+
+
+class ClusterOperationStatus(object):
+    class State(enum.IntEnum):
+        """
+        The operation state.
+
+        Attributes:
+          UNKNOWN (int): Unused.
+          PENDING (int): The operation has been created.
+          RUNNING (int): The operation is running.
+          DONE (int): The operation is done; either cancelled or completed.
+        """
+
+        UNKNOWN = 0
+        PENDING = 1
+        RUNNING = 2
+        DONE = 3
+
+
+class WorkflowMetadata(object):
+    class State(enum.IntEnum):
+        """
+        The operation state.
+
+        Attributes:
+          UNKNOWN (int): Unused.
+          PENDING (int): The operation has been created.
+          RUNNING (int): The operation is running.
+          DONE (int): The operation is done; either cancelled or completed.
+        """
+
+        UNKNOWN = 0
+        PENDING = 1
+        RUNNING = 2
+        DONE = 3
+
+
+class WorkflowNode(object):
+    class NodeState(enum.IntEnum):
+        """
+        The workflow node state.
+
+        Attributes:
+          NODE_STATE_UNSPECIFIED (int): State is unspecified.
+          BLOCKED (int): The node is awaiting prerequisite node to finish.
+          RUNNABLE (int): The node is runnable but not running.
+          RUNNING (int): The node is running.
+          COMPLETED (int): The node completed successfully.
+          FAILED (int): The node failed. A node can be marked FAILED because
+          its ancestor or peer failed.
+        """
+
+        NODE_STATE_UNSPECIFIED = 0
+        BLOCKED = 1
+        RUNNABLE = 2
+        RUNNING = 3
+        COMPLETED = 4
+        FAILED = 5

@@ -18,24 +18,34 @@ import unittest
 import mock
 
 
-TABLE_NAME = 'citizens'
-COLUMNS = ['email', 'first_name', 'last_name', 'age']
+TABLE_NAME = "citizens"
+COLUMNS = ["email", "first_name", "last_name", "age"]
 VALUES = [
-    ['phred@exammple.com', 'Phred', 'Phlyntstone', 32],
-    ['bharney@example.com', 'Bharney', 'Rhubble', 31],
+    ["phred@exammple.com", "Phred", "Phlyntstone", 32],
+    ["bharney@example.com", "Bharney", "Rhubble", 31],
 ]
+DML_QUERY = """\
+INSERT INTO citizens(first_name, last_name, age)
+VALUES ("Phred", "Phlyntstone", 32)
+"""
+DML_QUERY_WITH_PARAM = """
+INSERT INTO citizens(first_name, last_name, age)
+VALUES ("Phred", "Phlyntstone", @age)
+"""
+PARAMS = {"age": 30}
+PARAM_TYPES = {"age": "INT64"}
 
 
 class TestTransaction(unittest.TestCase):
 
-    PROJECT_ID = 'project-id'
-    INSTANCE_ID = 'instance-id'
-    INSTANCE_NAME = 'projects/' + PROJECT_ID + '/instances/' + INSTANCE_ID
-    DATABASE_ID = 'database-id'
-    DATABASE_NAME = INSTANCE_NAME + '/databases/' + DATABASE_ID
-    SESSION_ID = 'session-id'
-    SESSION_NAME = DATABASE_NAME + '/sessions/' + SESSION_ID
-    TRANSACTION_ID = b'DEADBEEF'
+    PROJECT_ID = "project-id"
+    INSTANCE_ID = "instance-id"
+    INSTANCE_NAME = "projects/" + PROJECT_ID + "/instances/" + INSTANCE_ID
+    DATABASE_ID = "database-id"
+    DATABASE_NAME = INSTANCE_NAME + "/databases/" + DATABASE_ID
+    SESSION_ID = "session-id"
+    SESSION_NAME = DATABASE_NAME + "/sessions/" + SESSION_ID
+    TRANSACTION_ID = b"DEADBEEF"
 
     def _getTargetClass(self):
         from google.cloud.spanner_v1.transaction import Transaction
@@ -51,8 +61,8 @@ class TestTransaction(unittest.TestCase):
         import google.cloud.spanner_v1.gapic.spanner_client
 
         return mock.create_autospec(
-            google.cloud.spanner_v1.gapic.spanner_client.SpannerClient,
-            instance=True)
+            google.cloud.spanner_v1.gapic.spanner_client.SpannerClient, instance=True
+        )
 
     def test_ctor_session_w_existing_txn(self):
         session = _Session()
@@ -68,6 +78,7 @@ class TestTransaction(unittest.TestCase):
         self.assertIsNone(transaction.committed)
         self.assertFalse(transaction._rolled_back)
         self.assertTrue(transaction._multi_use)
+        self.assertEqual(transaction._execute_sql_count, 0)
 
     def test__check_state_not_begun(self):
         session = _Session()
@@ -137,12 +148,14 @@ class TestTransaction(unittest.TestCase):
 
     def test_begin_ok(self):
         from google.cloud.spanner_v1.proto.transaction_pb2 import (
-            Transaction as TransactionPB)
+            Transaction as TransactionPB,
+        )
 
         transaction_pb = TransactionPB(id=self.TRANSACTION_ID)
         database = _Database()
         api = database.spanner_api = _FauxSpannerAPI(
-            _begin_transaction_response=transaction_pb)
+            _begin_transaction_response=transaction_pb
+        )
         session = _Session(database)
         transaction = self._make_one(session)
 
@@ -153,9 +166,8 @@ class TestTransaction(unittest.TestCase):
 
         session_id, txn_options, metadata = api._begun
         self.assertEqual(session_id, session.name)
-        self.assertTrue(txn_options.HasField('read_write'))
-        self.assertEqual(
-            metadata, [('google-cloud-resource-prefix', database.name)])
+        self.assertTrue(txn_options.HasField("read_write"))
+        self.assertEqual(metadata, [("google-cloud-resource-prefix", database.name)])
 
     def test_rollback_not_begun(self):
         session = _Session()
@@ -182,7 +194,7 @@ class TestTransaction(unittest.TestCase):
     def test_rollback_w_other_error(self):
         database = _Database()
         database.spanner_api = self._make_spanner_api()
-        database.spanner_api.rollback.side_effect = RuntimeError('other error')
+        database.spanner_api.rollback.side_effect = RuntimeError("other error")
         session = _Session(database)
         transaction = self._make_one(session)
         transaction._transaction_id = self.TRANSACTION_ID
@@ -198,8 +210,7 @@ class TestTransaction(unittest.TestCase):
 
         empty_pb = Empty()
         database = _Database()
-        api = database.spanner_api = _FauxSpannerAPI(
-            _rollback_response=empty_pb)
+        api = database.spanner_api = _FauxSpannerAPI(_rollback_response=empty_pb)
         session = _Session(database)
         transaction = self._make_one(session)
         transaction._transaction_id = self.TRANSACTION_ID
@@ -213,8 +224,7 @@ class TestTransaction(unittest.TestCase):
         session_id, txn_id, metadata = api._rolled_back
         self.assertEqual(session_id, session.name)
         self.assertEqual(txn_id, self.TRANSACTION_ID)
-        self.assertEqual(
-            metadata, [('google-cloud-resource-prefix', database.name)])
+        self.assertEqual(metadata, [("google-cloud-resource-prefix", database.name)])
 
     def test_commit_not_begun(self):
         session = _Session()
@@ -238,13 +248,6 @@ class TestTransaction(unittest.TestCase):
         with self.assertRaises(ValueError):
             transaction.commit()
 
-    def test_commit_no_mutations(self):
-        session = _Session()
-        transaction = self._make_one(session)
-        transaction._transaction_id = self.TRANSACTION_ID
-        with self.assertRaises(ValueError):
-            transaction.commit()
-
     def test_commit_w_other_error(self):
         database = _Database()
         database.spanner_api = self._make_spanner_api()
@@ -259,7 +262,7 @@ class TestTransaction(unittest.TestCase):
 
         self.assertIsNone(transaction.committed)
 
-    def test_commit_ok(self):
+    def _commit_helper(self, mutate=True):
         import datetime
         from google.cloud.spanner_v1.proto.spanner_pb2 import CommitResponse
         from google.cloud.spanner_v1.keyset import KeySet
@@ -272,12 +275,13 @@ class TestTransaction(unittest.TestCase):
         keyset = KeySet(keys=keys)
         response = CommitResponse(commit_timestamp=now_pb)
         database = _Database()
-        api = database.spanner_api = _FauxSpannerAPI(
-            _commit_response=response)
+        api = database.spanner_api = _FauxSpannerAPI(_commit_response=response)
         session = _Session(database)
         transaction = self._make_one(session)
         transaction._transaction_id = self.TRANSACTION_ID
-        transaction.delete(TABLE_NAME, keyset)
+
+        if mutate:
+            transaction.delete(TABLE_NAME, keyset)
 
         transaction.commit()
 
@@ -288,14 +292,91 @@ class TestTransaction(unittest.TestCase):
         self.assertEqual(session_id, session.name)
         self.assertEqual(txn_id, self.TRANSACTION_ID)
         self.assertEqual(mutations, transaction._mutations)
-        self.assertEqual(
-            metadata, [('google-cloud-resource-prefix', database.name)])
+        self.assertEqual(metadata, [("google-cloud-resource-prefix", database.name)])
+
+    def test_commit_no_mutations(self):
+        self._commit_helper(mutate=False)
+
+    def test_commit_w_mutations(self):
+        self._commit_helper(mutate=True)
+
+    def test_execute_update_other_error(self):
+        database = _Database()
+        database.spanner_api = self._make_spanner_api()
+        database.spanner_api.execute_sql.side_effect = RuntimeError()
+        session = _Session(database)
+        transaction = self._make_one(session)
+        transaction._transaction_id = self.TRANSACTION_ID
+
+        with self.assertRaises(RuntimeError):
+            transaction.execute_update(DML_QUERY)
+
+    def test_execute_update_w_params_wo_param_types(self):
+        database = _Database()
+        database.spanner_api = self._make_spanner_api()
+        session = _Session(database)
+        session = _Session()
+        transaction = self._make_one(session)
+        transaction._transaction_id = self.TRANSACTION_ID
+
+        with self.assertRaises(ValueError):
+            transaction.execute_update(DML_QUERY_WITH_PARAM, PARAMS)
+
+    def _execute_update_helper(self, count=0):
+        from google.protobuf.struct_pb2 import Struct
+        from google.cloud.spanner_v1.proto.result_set_pb2 import (
+            ResultSet,
+            ResultSetStats,
+        )
+        from google.cloud.spanner_v1.proto.transaction_pb2 import TransactionSelector
+        from google.cloud.spanner_v1._helpers import _make_value_pb
+
+        MODE = 2  # PROFILE
+        stats_pb = ResultSetStats(row_count_exact=1)
+        database = _Database()
+        api = database.spanner_api = self._make_spanner_api()
+        api.execute_sql.return_value = ResultSet(stats=stats_pb)
+        session = _Session(database)
+        transaction = self._make_one(session)
+        transaction._transaction_id = self.TRANSACTION_ID
+        transaction._execute_sql_count = count
+
+        row_count = transaction.execute_update(
+            DML_QUERY_WITH_PARAM, PARAMS, PARAM_TYPES, query_mode=MODE
+        )
+
+        self.assertEqual(row_count, 1)
+
+        expected_transaction = TransactionSelector(id=self.TRANSACTION_ID)
+        expected_params = Struct(
+            fields={key: _make_value_pb(value) for (key, value) in PARAMS.items()}
+        )
+
+        api.execute_sql.assert_called_once_with(
+            self.SESSION_NAME,
+            DML_QUERY_WITH_PARAM,
+            transaction=expected_transaction,
+            params=expected_params,
+            param_types=PARAM_TYPES,
+            query_mode=MODE,
+            seqno=count,
+            metadata=[("google-cloud-resource-prefix", database.name)],
+        )
+
+        self.assertEqual(transaction._execute_sql_count, count + 1)
+
+    def test_execute_update_new_transaction(self):
+        self._execute_update_helper()
+
+    def test_execute_update_w_count(self):
+        self._execute_update_helper(count=1)
 
     def test_context_mgr_success(self):
         import datetime
         from google.cloud.spanner_v1.proto.spanner_pb2 import CommitResponse
         from google.cloud.spanner_v1.proto.transaction_pb2 import (
-            Transaction as TransactionPB)
+            Transaction as TransactionPB,
+        )
         from google.cloud._helpers import UTC
         from google.cloud._helpers import _datetime_to_pb_timestamp
 
@@ -306,8 +387,8 @@ class TestTransaction(unittest.TestCase):
         response = CommitResponse(commit_timestamp=now_pb)
         database = _Database()
         api = database.spanner_api = _FauxSpannerAPI(
-            _begin_transaction_response=transaction_pb,
-            _commit_response=response)
+            _begin_transaction_response=transaction_pb, _commit_response=response
+        )
         session = _Session(database)
         transaction = self._make_one(session)
 
@@ -320,20 +401,21 @@ class TestTransaction(unittest.TestCase):
         self.assertEqual(session_id, self.SESSION_NAME)
         self.assertEqual(txn_id, self.TRANSACTION_ID)
         self.assertEqual(mutations, transaction._mutations)
-        self.assertEqual(
-            metadata, [('google-cloud-resource-prefix', database.name)])
+        self.assertEqual(metadata, [("google-cloud-resource-prefix", database.name)])
 
     def test_context_mgr_failure(self):
         from google.protobuf.empty_pb2 import Empty
+
         empty_pb = Empty()
         from google.cloud.spanner_v1.proto.transaction_pb2 import (
-            Transaction as TransactionPB)
+            Transaction as TransactionPB,
+        )
 
         transaction_pb = TransactionPB(id=self.TRANSACTION_ID)
         database = _Database()
         api = database.spanner_api = _FauxSpannerAPI(
-            _begin_transaction_response=transaction_pb,
-            _rollback_response=empty_pb)
+            _begin_transaction_response=transaction_pb, _rollback_response=empty_pb
+        )
         session = _Session(database)
         transaction = self._make_one(session)
 
@@ -351,12 +433,11 @@ class TestTransaction(unittest.TestCase):
         session_id, txn_id, metadata = api._rolled_back
         self.assertEqual(session_id, session.name)
         self.assertEqual(txn_id, self.TRANSACTION_ID)
-        self.assertEqual(
-            metadata, [('google-cloud-resource-prefix', database.name)])
+        self.assertEqual(metadata, [("google-cloud-resource-prefix", database.name)])
 
 
 class _Database(object):
-    name = 'testing'
+    name = "testing"
 
 
 class _Session(object):
@@ -383,8 +464,14 @@ class _FauxSpannerAPI(object):
         self._rolled_back = (session, transaction_id, metadata)
         return self._rollback_response
 
-    def commit(self, session, mutations,
-               transaction_id='', single_use_transaction=None, metadata=None):
+    def commit(
+        self,
+        session,
+        mutations,
+        transaction_id="",
+        single_use_transaction=None,
+        metadata=None,
+    ):
         assert single_use_transaction is None
         self._committed = (session, mutations, transaction_id, metadata)
         return self._commit_response

@@ -154,16 +154,34 @@ class Iterator(object):
         max_results (int): The maximum number of results to fetch.
     """
 
-    def __init__(self, client, item_to_value=_item_to_value_identity,
-                 page_token=None, max_results=None):
+    def __init__(
+        self,
+        client,
+        item_to_value=_item_to_value_identity,
+        page_token=None,
+        max_results=None,
+    ):
         self._started = False
         self.client = client
-        self._item_to_value = item_to_value
+        """Optional[Any]: The client that created this iterator."""
+        self.item_to_value = item_to_value
+        """Callable[Iterator, Any]: Callable to convert an item from the type
+            in the raw API response into the native object. Will be called with
+            the iterator and a
+            single item.
+        """
         self.max_results = max_results
+        """int: The maximum number of results to fetch."""
+
         # The attributes below will change over the life of the iterator.
         self.page_number = 0
+        """int: The current page of results."""
         self.next_page_token = page_token
+        """str: The token for the next page of results. If this is set before
+            the iterator starts, it effectively offsets the iterator to a
+            specific starting point."""
         self.num_results = 0
+        """int: The total number of results fetched so far."""
 
     @property
     def pages(self):
@@ -177,7 +195,7 @@ class Iterator(object):
             ValueError: If the iterator has already been started.
         """
         if self._started:
-            raise ValueError('Iterator has already started', self)
+            raise ValueError("Iterator has already started", self)
         self._started = True
         return self._page_iter(increment=True)
 
@@ -198,7 +216,7 @@ class Iterator(object):
             ValueError: If the iterator has already been started.
         """
         if self._started:
-            raise ValueError('Iterator has already started', self)
+            raise ValueError("Iterator has already started", self)
         self._started = True
         return self._items_iter()
 
@@ -288,20 +306,29 @@ class HTTPIterator(Iterator):
     .. autoattribute:: pages
     """
 
-    _DEFAULT_ITEMS_KEY = 'items'
-    _PAGE_TOKEN = 'pageToken'
-    _MAX_RESULTS = 'maxResults'
-    _NEXT_TOKEN = 'nextPageToken'
+    _DEFAULT_ITEMS_KEY = "items"
+    _PAGE_TOKEN = "pageToken"
+    _MAX_RESULTS = "maxResults"
+    _NEXT_TOKEN = "nextPageToken"
     _RESERVED_PARAMS = frozenset([_PAGE_TOKEN])
-    _HTTP_METHOD = 'GET'
+    _HTTP_METHOD = "GET"
 
-    def __init__(self, client, api_request, path, item_to_value,
-                 items_key=_DEFAULT_ITEMS_KEY,
-                 page_token=None, max_results=None, extra_params=None,
-                 page_start=_do_nothing_page_start, next_token=_NEXT_TOKEN):
+    def __init__(
+        self,
+        client,
+        api_request,
+        path,
+        item_to_value,
+        items_key=_DEFAULT_ITEMS_KEY,
+        page_token=None,
+        max_results=None,
+        extra_params=None,
+        page_start=_do_nothing_page_start,
+        next_token=_NEXT_TOKEN,
+    ):
         super(HTTPIterator, self).__init__(
-            client, item_to_value, page_token=page_token,
-            max_results=max_results)
+            client, item_to_value, page_token=page_token, max_results=max_results
+        )
         self.api_request = api_request
         self.path = path
         self._items_key = items_key
@@ -319,11 +346,9 @@ class HTTPIterator(Iterator):
         Raises:
             ValueError: If a reserved parameter is used.
         """
-        reserved_in_use = self._RESERVED_PARAMS.intersection(
-            self.extra_params)
+        reserved_in_use = self._RESERVED_PARAMS.intersection(self.extra_params)
         if reserved_in_use:
-            raise ValueError('Using a reserved parameter',
-                             reserved_in_use)
+            raise ValueError("Using a reserved parameter", reserved_in_use)
 
     def _next_page(self):
         """Get the next page in the iterator.
@@ -335,7 +360,7 @@ class HTTPIterator(Iterator):
         if self._has_next_page():
             response = self._get_next_page_response()
             items = response.get(self._items_key, ())
-            page = Page(self, items, self._item_to_value)
+            page = Page(self, items, self.item_to_value)
             self._page_start(self, page, response)
             self.next_page_token = response.get(self._next_token)
             return page
@@ -381,18 +406,16 @@ class HTTPIterator(Iterator):
             ValueError: If the HTTP method is not ``GET`` or ``POST``.
         """
         params = self._get_query_params()
-        if self._HTTP_METHOD == 'GET':
+        if self._HTTP_METHOD == "GET":
             return self.api_request(
-                method=self._HTTP_METHOD,
-                path=self.path,
-                query_params=params)
-        elif self._HTTP_METHOD == 'POST':
+                method=self._HTTP_METHOD, path=self.path, query_params=params
+            )
+        elif self._HTTP_METHOD == "POST":
             return self.api_request(
-                method=self._HTTP_METHOD,
-                path=self.path,
-                data=params)
+                method=self._HTTP_METHOD, path=self.path, data=params
+            )
         else:
-            raise ValueError('Unexpected HTTP method', self._HTTP_METHOD)
+            raise ValueError("Unexpected HTTP method", self._HTTP_METHOD)
 
 
 class _GAXIterator(Iterator):
@@ -412,8 +435,11 @@ class _GAXIterator(Iterator):
 
     def __init__(self, client, page_iter, item_to_value, max_results=None):
         super(_GAXIterator, self).__init__(
-            client, item_to_value, page_token=page_iter.page_token,
-            max_results=max_results)
+            client,
+            item_to_value,
+            page_token=page_iter.page_token,
+            max_results=max_results,
+        )
         self._gax_page_iter = page_iter
 
     def _next_page(self):
@@ -428,7 +454,7 @@ class _GAXIterator(Iterator):
         """
         try:
             items = six.next(self._gax_page_iter)
-            page = Page(self, items, self._item_to_value)
+            page = Page(self, items, self.item_to_value)
             self.next_page_token = self._gax_page_iter.page_token or None
             return page
         except StopIteration:
@@ -461,21 +487,23 @@ class GRPCIterator(Iterator):
     .. autoattribute:: pages
     """
 
-    _DEFAULT_REQUEST_TOKEN_FIELD = 'page_token'
-    _DEFAULT_RESPONSE_TOKEN_FIELD = 'next_page_token'
+    _DEFAULT_REQUEST_TOKEN_FIELD = "page_token"
+    _DEFAULT_RESPONSE_TOKEN_FIELD = "next_page_token"
 
     def __init__(
-            self,
-            client,
-            method,
-            request,
-            items_field,
-            item_to_value=_item_to_value_identity,
-            request_token_field=_DEFAULT_REQUEST_TOKEN_FIELD,
-            response_token_field=_DEFAULT_RESPONSE_TOKEN_FIELD,
-            max_results=None):
+        self,
+        client,
+        method,
+        request,
+        items_field,
+        item_to_value=_item_to_value_identity,
+        request_token_field=_DEFAULT_REQUEST_TOKEN_FIELD,
+        response_token_field=_DEFAULT_RESPONSE_TOKEN_FIELD,
+        max_results=None,
+    ):
         super(GRPCIterator, self).__init__(
-            client, item_to_value, max_results=max_results)
+            client, item_to_value, max_results=max_results
+        )
         self._method = method
         self._request = request
         self._items_field = items_field
@@ -493,14 +521,13 @@ class GRPCIterator(Iterator):
             return None
 
         if self.next_page_token is not None:
-            setattr(
-                self._request, self._request_token_field, self.next_page_token)
+            setattr(self._request, self._request_token_field, self.next_page_token)
 
         response = self._method(self._request)
 
         self.next_page_token = getattr(response, self._response_token_field)
         items = getattr(response, self._items_field)
-        page = Page(self, items, self._item_to_value)
+        page = Page(self, items, self.item_to_value)
 
         return page
 

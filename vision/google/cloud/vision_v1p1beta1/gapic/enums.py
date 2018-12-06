@@ -1,10 +1,12 @@
-# Copyright 2017, Google LLC All rights reserved.
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,8 +15,10 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
+import enum
 
-class Likelihood(object):
+
+class Likelihood(enum.IntEnum):
     """
     A bucketized representation of likelihood, which is intended to give clients
     highly stable results across model upgrades.
@@ -27,6 +31,7 @@ class Likelihood(object):
       LIKELY (int): It is likely that the image belongs to the specified vertical.
       VERY_LIKELY (int): It is very likely that the image belongs to the specified vertical.
     """
+
     UNKNOWN = 0
     VERY_UNLIKELY = 1
     UNLIKELY = 2
@@ -37,7 +42,7 @@ class Likelihood(object):
 
 class TextAnnotation(object):
     class DetectedBreak(object):
-        class BreakType(object):
+        class BreakType(enum.IntEnum):
             """
             Enum to denote the type of break found. New line, space etc.
 
@@ -50,6 +55,7 @@ class TextAnnotation(object):
               ``SPACE``, ``LEADER_SPACE``, or ``LINE_BREAK``.
               LINE_BREAK (int): Line break that ends a paragraph.
             """
+
             UNKNOWN = 0
             SPACE = 1
             SURE_SPACE = 2
@@ -59,7 +65,7 @@ class TextAnnotation(object):
 
 
 class Block(object):
-    class BlockType(object):
+    class BlockType(enum.IntEnum):
         """
         Type of a block (text, image etc) as identified by OCR.
 
@@ -71,6 +77,7 @@ class Block(object):
           RULER (int): Horizontal/vertical line box.
           BARCODE (int): Barcode block.
         """
+
         UNKNOWN = 0
         TEXT = 1
         TABLE = 2
@@ -80,7 +87,7 @@ class Block(object):
 
 
 class Feature(object):
-    class Type(object):
+    class Type(enum.IntEnum):
         """
         Type of image feature.
 
@@ -92,12 +99,13 @@ class Feature(object):
           LABEL_DETECTION (int): Run label detection.
           TEXT_DETECTION (int): Run OCR.
           DOCUMENT_TEXT_DETECTION (int): Run dense text document OCR. Takes precedence when both
-          DOCUMENT_TEXT_DETECTION and TEXT_DETECTION are present.
+          DOCUMENT\_TEXT\_DETECTION and TEXT\_DETECTION are present.
           SAFE_SEARCH_DETECTION (int): Run computer vision models to compute image safe-search properties.
           IMAGE_PROPERTIES (int): Compute a set of image properties, such as the image's dominant colors.
           CROP_HINTS (int): Run crop hints.
           WEB_DETECTION (int): Run web detection.
         """
+
         TYPE_UNSPECIFIED = 0
         FACE_DETECTION = 1
         LANDMARK_DETECTION = 2
@@ -113,12 +121,12 @@ class Feature(object):
 
 class FaceAnnotation(object):
     class Landmark(object):
-        class Type(object):
+        class Type(enum.IntEnum):
             """
-            Face landmark (feature) type.
-            Left and right are defined from the vantage of the viewer of the image
-            without considering mirror projections typical of photos. So, ``LEFT_EYE``,
-            typically, is the person's right eye.
+            Face landmark (feature) type. Left and right are defined from the
+            vantage of the viewer of the image without considering mirror
+            projections typical of photos. So, ``LEFT_EYE``, typically, is the
+            person's right eye.
 
             Attributes:
               UNKNOWN_LANDMARK (int): Unknown face landmark detected. Should not be filled.
@@ -157,6 +165,7 @@ class FaceAnnotation(object):
               CHIN_LEFT_GONION (int): Chin left gonion.
               CHIN_RIGHT_GONION (int): Chin right gonion.
             """
+
             UNKNOWN_LANDMARK = 0
             LEFT_EYE = 1
             RIGHT_EYE = 2

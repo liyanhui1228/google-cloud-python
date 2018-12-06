@@ -19,8 +19,8 @@ import mock
 from google.auth import credentials
 from google.cloud.pubsub_v1 import publisher
 from google.cloud.pubsub_v1 import types
-from google.cloud.pubsub_v1.publisher.batch.base import BatchStatus
-from google.cloud.pubsub_v1.publisher.batch.thread import Batch
+from google.cloud.pubsub_v1.publisher._batch.base import BatchStatus
+from google.cloud.pubsub_v1.publisher._batch.thread import Batch
 
 
 def create_batch(status=None, settings=types.BatchSettings()):
@@ -35,7 +35,7 @@ def create_batch(status=None, settings=types.BatchSettings()):
     """
     creds = mock.Mock(spec=credentials.Credentials)
     client = publisher.Client(credentials=creds)
-    batch = Batch(client, 'topic_name', settings, autocommit=False)
+    batch = Batch(client, "topic_name", settings, autocommit=False)
     if status:
         batch._status = status
     return batch
@@ -44,7 +44,7 @@ def create_batch(status=None, settings=types.BatchSettings()):
 def test_len():
     batch = create_batch(status=BatchStatus.ACCEPTING_MESSAGES)
     assert len(batch) == 0
-    batch.publish(types.PubsubMessage(data=b'foo'))
+    batch.publish(types.PubsubMessage(data=b"foo"))
     assert len(batch) == 1
 
 
@@ -54,18 +54,18 @@ def test_will_accept():
     assert batch.will_accept(message) is True
 
 
-def test_will_not_accept_status():
-    batch = create_batch(status='talk to the hand')
-    message = types.PubsubMessage()
-    assert batch.will_accept(message) is False
-
-
-def test_will_not_accept_size():
+def test_will_accept_oversize():
     batch = create_batch(
         settings=types.BatchSettings(max_bytes=10),
         status=BatchStatus.ACCEPTING_MESSAGES,
     )
-    message = types.PubsubMessage(data=b'abcdefghijklmnopqrstuvwxyz')
+    message = types.PubsubMessage(data=b"abcdefghijklmnopqrstuvwxyz")
+    assert batch.will_accept(message) is True
+
+
+def test_will_not_accept_status():
+    batch = create_batch(status="talk to the hand")
+    message = types.PubsubMessage()
     assert batch.will_accept(message) is False
 
 
@@ -74,5 +74,5 @@ def test_will_not_accept_number():
         settings=types.BatchSettings(max_messages=-1),
         status=BatchStatus.ACCEPTING_MESSAGES,
     )
-    message = types.PubsubMessage(data=b'abc')
+    message = types.PubsubMessage(data=b"abc")
     assert batch.will_accept(message) is False

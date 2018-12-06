@@ -17,13 +17,14 @@ import time
 
 import mock
 
+import google.api_core.exceptions
 from google.auth import credentials
 from google.cloud.pubsub_v1 import publisher
 from google.cloud.pubsub_v1 import types
 from google.cloud.pubsub_v1.publisher import exceptions
-from google.cloud.pubsub_v1.publisher.batch.base import BatchStatus
-from google.cloud.pubsub_v1.publisher.batch import thread
-from google.cloud.pubsub_v1.publisher.batch.thread import Batch
+from google.cloud.pubsub_v1.publisher._batch.base import BatchStatus
+from google.cloud.pubsub_v1.publisher._batch import thread
+from google.cloud.pubsub_v1.publisher._batch.thread import Batch
 
 
 def create_client():
@@ -46,7 +47,7 @@ def create_batch(autocommit=False, **batch_settings):
     """
     client = create_client()
     settings = types.BatchSettings(**batch_settings)
-    return Batch(client, 'topic_name', settings, autocommit=autocommit)
+    return Batch(client, "topic_name", settings, autocommit=autocommit)
 
 
 def test_init():
@@ -56,11 +57,10 @@ def test_init():
     # Do not actually create a thread, but do verify that one was created;
     # it should be running the batch's "monitor" method (which commits the
     # batch once time elapses).
-    with mock.patch.object(threading, 'Thread', autospec=True) as Thread:
-        batch = Batch(client, 'topic_name', types.BatchSettings())
+    with mock.patch.object(threading, "Thread", autospec=True) as Thread:
+        batch = Batch(client, "topic_name", types.BatchSettings())
         Thread.assert_called_once_with(
-            name='Thread-MonitorBatchPublisher',
-            target=batch.monitor,
+            name="Thread-MonitorBatchPublisher", target=batch.monitor
         )
 
     # New batches start able to accept messages by default.
@@ -68,11 +68,11 @@ def test_init():
 
 
 def test_init_infinite_latency():
-    batch = create_batch(max_latency=float('inf'))
+    batch = create_batch(max_latency=float("inf"))
     assert batch._thread is None
 
 
-@mock.patch.object(threading, 'Lock')
+@mock.patch.object(threading, "Lock")
 def test_make_lock(Lock):
     lock = Batch.make_lock()
     assert lock is Lock.return_value
@@ -82,19 +82,18 @@ def test_make_lock(Lock):
 def test_client():
     client = create_client()
     settings = types.BatchSettings()
-    batch = Batch(client, 'topic_name', settings, autocommit=False)
+    batch = Batch(client, "topic_name", settings, autocommit=False)
     assert batch.client is client
 
 
 def test_commit():
     batch = create_batch()
-    with mock.patch.object(threading, 'Thread', autospec=True) as Thread:
+    with mock.patch.object(threading, "Thread", autospec=True) as Thread:
         batch.commit()
 
         # A thread should have been created to do the actual commit.
         Thread.assert_called_once_with(
-            name='Thread-CommitBatchPublisher',
-            target=batch._commit,
+            name="Thread-CommitBatchPublisher", target=batch._commit
         )
         Thread.return_value.start.assert_called_once_with()
 
@@ -107,7 +106,7 @@ def test_commit():
 def test_commit_no_op():
     batch = create_batch()
     batch._status = BatchStatus.IN_PROGRESS
-    with mock.patch.object(threading, 'Thread', autospec=True) as Thread:
+    with mock.patch.object(threading, "Thread", autospec=True) as Thread:
         batch.commit()
 
     # Make sure a thread was not created.
@@ -120,36 +119,37 @@ def test_commit_no_op():
 def test_blocking__commit():
     batch = create_batch()
     futures = (
-        batch.publish({'data': b'This is my message.'}),
-        batch.publish({'data': b'This is another message.'}),
+        batch.publish({"data": b"This is my message."}),
+        batch.publish({"data": b"This is another message."}),
     )
 
     # Set up the underlying API publish method to return a PublishResponse.
-    publish_response = types.PublishResponse(message_ids=['a', 'b'])
+    publish_response = types.PublishResponse(message_ids=["a", "b"])
     patch = mock.patch.object(
-        type(batch.client.api), 'publish', return_value=publish_response)
+        type(batch.client.api), "publish", return_value=publish_response
+    )
     with patch as publish:
         batch._commit()
 
     # Establish that the underlying API call was made with expected
     # arguments.
     publish.assert_called_once_with(
-        'topic_name',
+        "topic_name",
         [
-            types.PubsubMessage(data=b'This is my message.'),
-            types.PubsubMessage(data=b'This is another message.'),
+            types.PubsubMessage(data=b"This is my message."),
+            types.PubsubMessage(data=b"This is another message."),
         ],
     )
 
     # Establish that all of the futures are done, and that they have the
     # expected values.
     assert futures[0].done()
-    assert futures[0].result() == 'a'
+    assert futures[0].result() == "a"
     assert futures[1].done()
-    assert futures[1].result() == 'b'
+    assert futures[1].result() == "b"
 
 
-@mock.patch.object(thread, '_LOGGER')
+@mock.patch.object(thread, "_LOGGER")
 def test_blocking__commit_starting(_LOGGER):
     batch = create_batch()
     batch._status = BatchStatus.STARTING
@@ -157,11 +157,10 @@ def test_blocking__commit_starting(_LOGGER):
     batch._commit()
     assert batch._status == BatchStatus.SUCCESS
 
-    _LOGGER.debug.assert_called_once_with(
-        'No messages to publish, exiting commit')
+    _LOGGER.debug.assert_called_once_with("No messages to publish, exiting commit")
 
 
-@mock.patch.object(thread, '_LOGGER')
+@mock.patch.object(thread, "_LOGGER")
 def test_blocking__commit_already_started(_LOGGER):
     batch = create_batch()
     batch._status = BatchStatus.IN_PROGRESS
@@ -170,12 +169,13 @@ def test_blocking__commit_already_started(_LOGGER):
     assert batch._status == BatchStatus.IN_PROGRESS
 
     _LOGGER.debug.assert_called_once_with(
-        'Batch is already in progress, exiting commit')
+        "Batch is already in progress, exiting commit"
+    )
 
 
 def test_blocking__commit_no_messages():
     batch = create_batch()
-    with mock.patch.object(type(batch.client.api), 'publish') as publish:
+    with mock.patch.object(type(batch.client.api), "publish") as publish:
         batch._commit()
 
     assert publish.call_count == 0
@@ -184,15 +184,17 @@ def test_blocking__commit_no_messages():
 def test_blocking__commit_wrong_messageid_length():
     batch = create_batch()
     futures = (
-        batch.publish({'data': b'blah blah blah'}),
-        batch.publish({'data': b'blah blah blah blah'}),
+        batch.publish({"data": b"blah blah blah"}),
+        batch.publish({"data": b"blah blah blah blah"}),
     )
 
     # Set up a PublishResponse that only returns one message ID.
-    publish_response = types.PublishResponse(message_ids=['a'])
+    publish_response = types.PublishResponse(message_ids=["a"])
     patch = mock.patch.object(
-        type(batch.client.api), 'publish', return_value=publish_response)
-    with patch as publish:
+        type(batch.client.api), "publish", return_value=publish_response
+    )
+
+    with patch:
         batch._commit()
 
     for future in futures:
@@ -200,10 +202,29 @@ def test_blocking__commit_wrong_messageid_length():
         assert isinstance(future.exception(), exceptions.PublishError)
 
 
+def test_block__commmit_api_error():
+    batch = create_batch()
+    futures = (
+        batch.publish({"data": b"blah blah blah"}),
+        batch.publish({"data": b"blah blah blah blah"}),
+    )
+
+    # Make the API throw an error when publishing.
+    error = google.api_core.exceptions.InternalServerError("uh oh")
+    patch = mock.patch.object(type(batch.client.api), "publish", side_effect=error)
+
+    with patch:
+        batch._commit()
+
+    for future in futures:
+        assert future.done()
+        assert future.exception() == error
+
+
 def test_monitor():
     batch = create_batch(max_latency=5.0)
-    with mock.patch.object(time, 'sleep') as sleep:
-        with mock.patch.object(type(batch), '_commit') as _commit:
+    with mock.patch.object(time, "sleep") as sleep:
+        with mock.patch.object(type(batch), "_commit") as _commit:
             batch.monitor()
 
     # The monitor should have waited the given latency.
@@ -216,9 +237,9 @@ def test_monitor():
 
 def test_monitor_already_committed():
     batch = create_batch(max_latency=5.0)
-    status = 'something else'
+    status = "something else"
     batch._status = status
-    with mock.patch.object(time, 'sleep') as sleep:
+    with mock.patch.object(time, "sleep") as sleep:
         batch.monitor()
 
     # The monitor should have waited the given latency.
@@ -231,9 +252,9 @@ def test_monitor_already_committed():
 def test_publish():
     batch = create_batch()
     messages = (
-        types.PubsubMessage(data=b'foobarbaz'),
-        types.PubsubMessage(data=b'spameggs'),
-        types.PubsubMessage(data=b'1335020400'),
+        types.PubsubMessage(data=b"foobarbaz"),
+        types.PubsubMessage(data=b"spameggs"),
+        types.PubsubMessage(data=b"1335020400"),
     )
 
     # Publish each of the messages, which should save them to the batch.
@@ -254,7 +275,7 @@ def test_publish_not_will_accept():
     batch = create_batch(max_messages=0)
 
     # Publish the message.
-    message = types.PubsubMessage(data=b'foobarbaz')
+    message = types.PubsubMessage(data=b"foobarbaz")
     future = batch.publish(message)
 
     assert future is None
@@ -267,13 +288,13 @@ def test_publish_exceed_max_messages():
     max_messages = 4
     batch = create_batch(max_messages=max_messages)
     messages = (
-        types.PubsubMessage(data=b'foobarbaz'),
-        types.PubsubMessage(data=b'spameggs'),
-        types.PubsubMessage(data=b'1335020400'),
+        types.PubsubMessage(data=b"foobarbaz"),
+        types.PubsubMessage(data=b"spameggs"),
+        types.PubsubMessage(data=b"1335020400"),
     )
 
     # Publish each of the messages, which should save them to the batch.
-    with mock.patch.object(batch, 'commit') as commit:
+    with mock.patch.object(batch, "commit") as commit:
         futures = [batch.publish(message) for message in messages]
         assert batch._futures == futures
         assert len(futures) == max_messages - 1
@@ -282,21 +303,21 @@ def test_publish_exceed_max_messages():
         assert commit.call_count == 0
 
         # When a fourth message is published, commit should be called.
-        future = batch.publish(types.PubsubMessage(data=b'last one'))
+        # No future will be returned in this case.
+        future = batch.publish(types.PubsubMessage(data=b"last one"))
         commit.assert_called_once_with()
 
-        futures.append(future)
+        assert future is None
         assert batch._futures == futures
-        assert len(futures) == max_messages
 
 
 def test_publish_dict():
     batch = create_batch()
-    future = batch.publish(
-        {'data': b'foobarbaz', 'attributes': {'spam': 'eggs'}})
+    future = batch.publish({"data": b"foobarbaz", "attributes": {"spam": "eggs"}})
 
     # There should be one message on the batch.
     expected_message = types.PubsubMessage(
-        data=b'foobarbaz', attributes={'spam': 'eggs'})
+        data=b"foobarbaz", attributes={"spam": "eggs"}
+    )
     assert batch.messages == [expected_message]
     assert batch._futures == [future]

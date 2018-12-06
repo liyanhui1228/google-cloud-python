@@ -51,47 +51,54 @@ from google.cloud._helpers import _rfc3339_to_datetime
 from google.cloud._helpers import _to_bytes
 from google.cloud._helpers import _bytes_to_unicode
 from google.cloud.exceptions import NotFound
-from google.cloud.iam import Policy
+from google.api_core.iam import Policy
 from google.cloud.storage._helpers import _PropertyMixin
 from google.cloud.storage._helpers import _scalar_property
 from google.cloud.storage._signing import generate_signed_url
+from google.cloud.storage.acl import ACL
 from google.cloud.storage.acl import ObjectACL
 
 
-_API_ACCESS_ENDPOINT = 'https://storage.googleapis.com'
-_DEFAULT_CONTENT_TYPE = u'application/octet-stream'
+_API_ACCESS_ENDPOINT = "https://storage.googleapis.com"
+_DEFAULT_CONTENT_TYPE = u"application/octet-stream"
 _DOWNLOAD_URL_TEMPLATE = (
-    u'https://www.googleapis.com/download/storage/v1{path}?alt=media')
+    u"https://www.googleapis.com/download/storage/v1{path}?alt=media"
+)
 _BASE_UPLOAD_TEMPLATE = (
-    u'https://www.googleapis.com/upload/storage/v1{bucket_path}/o?uploadType=')
-_MULTIPART_URL_TEMPLATE = _BASE_UPLOAD_TEMPLATE + u'multipart'
-_RESUMABLE_URL_TEMPLATE = _BASE_UPLOAD_TEMPLATE + u'resumable'
+    u"https://www.googleapis.com/upload/storage/v1{bucket_path}/o?uploadType="
+)
+_MULTIPART_URL_TEMPLATE = _BASE_UPLOAD_TEMPLATE + u"multipart"
+_RESUMABLE_URL_TEMPLATE = _BASE_UPLOAD_TEMPLATE + u"resumable"
 # NOTE: "acl" is also writeable but we defer ACL management to
 #       the classes in the google.cloud.storage.acl module.
-_CONTENT_TYPE_FIELD = 'contentType'
+_CONTENT_TYPE_FIELD = "contentType"
 _WRITABLE_FIELDS = (
-    'cacheControl',
-    'contentDisposition',
-    'contentEncoding',
-    'contentLanguage',
+    "cacheControl",
+    "contentDisposition",
+    "contentEncoding",
+    "contentLanguage",
     _CONTENT_TYPE_FIELD,
-    'crc32c',
-    'md5Hash',
-    'metadata',
-    'name',
-    'storageClass',
+    "crc32c",
+    "md5Hash",
+    "metadata",
+    "name",
+    "storageClass",
 )
 _NUM_RETRIES_MESSAGE = (
-    '`num_retries` has been deprecated and will be removed in a future '
-    'release. The default behavior (when `num_retries` is not specified) when '
-    'a transient error (e.g. 429 Too Many Requests or 500 Internal Server '
-    'Error) occurs will be as follows: upload requests will be automatically '
-    'retried. Subsequent retries will be sent after waiting 1, 2, 4, 8, etc. '
-    'seconds (exponential backoff) until 10 minutes of wait time have '
-    'elapsed. At that point, there will be no more attempts to retry.')
+    "`num_retries` has been deprecated and will be removed in a future "
+    "release. The default behavior (when `num_retries` is not specified) when "
+    "a transient error (e.g. 429 Too Many Requests or 500 Internal Server "
+    "Error) occurs will be as follows: upload requests will be automatically "
+    "retried. Subsequent retries will be sent after waiting 1, 2, 4, 8, etc. "
+    "seconds (exponential backoff) until 10 minutes of wait time have "
+    "elapsed. At that point, there will be no more attempts to retry."
+)
 _READ_LESS_THAN_SIZE = (
-    'Size {:d} was specified but the file-like object only had '
-    '{:d} bytes remaining.')
+    "Size {:d} was specified but the file-like object only had " "{:d} bytes remaining."
+)
+
+_DEFAULT_CHUNKSIZE = 104857600  # 1024 * 1024 B * 100 = 100 MB
+_MAX_MULTIPART_SIZE = 8388608  # 8 MB
 
 
 class Blob(_PropertyMixin):
@@ -108,27 +115,32 @@ class Blob(_PropertyMixin):
     :param bucket: The bucket to which this blob belongs.
 
     :type chunk_size: int
-    :param chunk_size: The size of a chunk of data whenever iterating (1 MB).
-                       This must be a multiple of 256 KB per the API
+
+    :param chunk_size: The size of a chunk of data whenever iterating (in
+                       bytes). This must be a multiple of 256 KB per the API
                        specification.
 
     :type encryption_key: bytes
     :param encryption_key:
         Optional 32 byte encryption key for customer-supplied encryption.
         See https://cloud.google.com/storage/docs/encryption#customer-supplied.
+
+    :type kms_key_name: str
+    :param kms_key_name:
+        Optional resource name of Cloud KMS key used to encrypt the blob's
+        contents.
     """
 
     _chunk_size = None  # Default value for each instance.
-
     _CHUNK_SIZE_MULTIPLE = 256 * 1024
     """Number (256 KB, in bytes) that must divide the chunk size."""
 
     _STORAGE_CLASSES = (
-        'NEARLINE',
-        'MULTI_REGIONAL',
-        'REGIONAL',
-        'COLDLINE',
-        'STANDARD',  # alias for MULTI_REGIONAL/REGIONAL, based on location
+        "NEARLINE",
+        "MULTI_REGIONAL",
+        "REGIONAL",
+        "COLDLINE",
+        "STANDARD",  # alias for MULTI_REGIONAL/REGIONAL, based on location
     )
     """Allowed values for :attr:`storage_class`.
 
@@ -146,14 +158,24 @@ class Blob(_PropertyMixin):
        set as their 'storage_class'.
     """
 
-    def __init__(self, name, bucket, chunk_size=None, encryption_key=None):
+    def __init__(
+        self, name, bucket, chunk_size=None, encryption_key=None, kms_key_name=None
+    ):
         name = _bytes_to_unicode(name)
         super(Blob, self).__init__(name=name)
 
         self.chunk_size = chunk_size  # Check that setter accepts value.
         self.bucket = bucket
         self._acl = ObjectACL(self)
+        if encryption_key is not None and kms_key_name is not None:
+            raise ValueError(
+                "Pass at most one of 'encryption_key' " "and 'kms_key_name'"
+            )
+
         self._encryption_key = encryption_key
+
+        if kms_key_name is not None:
+            self._properties["kmsKeyName"] = kms_key_name
 
     @property
     def chunk_size(self):
@@ -174,9 +196,10 @@ class Blob(_PropertyMixin):
         :raises: :class:`ValueError` if ``value`` is not ``None`` and is not a
                  multiple of 256 KB.
         """
-        if value is not None and value % self._CHUNK_SIZE_MULTIPLE != 0:
-            raise ValueError('Chunk size must be a multiple of %d.' % (
-                self._CHUNK_SIZE_MULTIPLE,))
+        if value is not None and value > 0 and value % self._CHUNK_SIZE_MULTIPLE != 0:
+            raise ValueError(
+                "Chunk size must be a multiple of %d." % (self._CHUNK_SIZE_MULTIPLE,)
+            )
         self._chunk_size = value
 
     @staticmethod
@@ -192,7 +215,7 @@ class Blob(_PropertyMixin):
         :rtype: str
         :returns: The relative URL path for ``blob_name``.
         """
-        return bucket_path + '/o/' + _quote(blob_name)
+        return bucket_path + "/o/" + _quote(blob_name)
 
     @property
     def acl(self):
@@ -205,7 +228,7 @@ class Blob(_PropertyMixin):
         else:
             bucket_name = None
 
-        return '<Blob: %s, %s>' % (bucket_name, self.name)
+        return "<Blob: %s, %s>" % (bucket_name, self.name)
 
     @property
     def path(self):
@@ -215,7 +238,7 @@ class Blob(_PropertyMixin):
         :returns: The URL path to this Blob.
         """
         if not self.name:
-            raise ValueError('Cannot determine path without a blob name.')
+            raise ValueError("Cannot determine path without a blob name.")
 
         return self.path_helper(self.bucket.path, self.name)
 
@@ -236,28 +259,40 @@ class Blob(_PropertyMixin):
 
     @property
     def public_url(self):
-        """The public URL for this blob's object.
+        """The public URL for this blob.
+
+        Use :meth:`make_public` to enable anonymous access via the returned
+        URL.
 
         :rtype: `string`
         :returns: The public URL for this blob.
         """
-        return '{storage_base_url}/{bucket_name}/{quoted_name}'.format(
+        return "{storage_base_url}/{bucket_name}/{quoted_name}".format(
             storage_base_url=_API_ACCESS_ENDPOINT,
             bucket_name=self.bucket.name,
-            quoted_name=_quote(self.name))
+            quoted_name=quote(self.name.encode("utf-8")),
+        )
 
-    def generate_signed_url(self, expiration, method='GET',
-                            content_type=None,
-                            generation=None, response_disposition=None,
-                            response_type=None, client=None, credentials=None):
+    def generate_signed_url(
+        self,
+        expiration,
+        method="GET",
+        content_type=None,
+        generation=None,
+        response_disposition=None,
+        response_type=None,
+        client=None,
+        credentials=None,
+    ):
         """Generates a signed URL for this blob.
 
         .. note::
 
             If you are on Google Compute Engine, you can't generate a signed
-            URL. Follow `Issue 50`_ for updates on this. If you'd like to
-            be able to generate a signed URL from GCE, you can use a standard
-            service account from a JSON file rather than a GCE service account.
+            URL using GCE service account. Follow `Issue 50`_ for updates on
+            this. If you'd like to be able to generate a signed URL from GCE,
+            you can use a standard service account from a JSON file rather
+            than a GCE service account.
 
         .. _Issue 50: https://github.com/GoogleCloudPlatform/\
                       google-auth-library-python/issues/50
@@ -313,22 +348,25 @@ class Blob(_PropertyMixin):
         :returns: A signed URL you can use to access the resource
                   until expiration.
         """
-        resource = '/{bucket_name}/{quoted_name}'.format(
-            bucket_name=self.bucket.name,
-            quoted_name=_quote(self.name))
+        resource = "/{bucket_name}/{quoted_name}".format(
+            bucket_name=self.bucket.name, quoted_name=quote(self.name.encode("utf-8"))
+        )
 
         if credentials is None:
             client = self._require_client(client)
             credentials = client._credentials
 
         return generate_signed_url(
-            credentials, resource=resource,
+            credentials,
+            resource=resource,
             api_access_endpoint=_API_ACCESS_ENDPOINT,
-            expiration=expiration, method=method,
+            expiration=expiration,
+            method=method.upper(),
             content_type=content_type,
             response_type=response_type,
             response_disposition=response_disposition,
-            generation=generation)
+            generation=generation,
+        )
 
     def exists(self, client=None):
         """Determines whether or not this blob exists.
@@ -347,17 +385,20 @@ class Blob(_PropertyMixin):
         client = self._require_client(client)
         # We only need the status code (200 or not) so we seek to
         # minimize the returned payload.
-        query_params = {'fields': 'name'}
+        query_params = {"fields": "name"}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
         try:
             # We intentionally pass `_target_object=None` since fields=name
             # would limit the local properties.
             client._connection.api_request(
-                method='GET', path=self.path,
-                query_params=query_params, _target_object=None)
+                method="GET",
+                path=self.path,
+                query_params=query_params,
+                _target_object=None,
+            )
             # NOTE: This will not fail immediately in a batch. However, when
             #       Batch.finish() is called, the resulting `NotFound` will be
             #       raised.
@@ -413,17 +454,18 @@ class Blob(_PropertyMixin):
         if self.media_link is None:
             base_url = _DOWNLOAD_URL_TEMPLATE.format(path=self.path)
             if self.generation is not None:
-                name_value_pairs.append(
-                    ('generation', '{:d}'.format(self.generation)))
+                name_value_pairs.append(("generation", "{:d}".format(self.generation)))
         else:
             base_url = self.media_link
 
         if self.user_project is not None:
-            name_value_pairs.append(('userProject', self.user_project))
+            name_value_pairs.append(("userProject", self.user_project))
 
         return _add_query_parameters(base_url, name_value_pairs)
 
-    def _do_download(self, transport, file_obj, download_url, headers):
+    def _do_download(
+        self, transport, file_obj, download_url, headers, start=None, end=None
+    ):
         """Perform a download without any error handling.
 
         This is intended to be called by :meth:`download_to_file` so it can
@@ -442,18 +484,32 @@ class Blob(_PropertyMixin):
 
         :type headers: dict
         :param headers: Optional headers to be sent with the request(s).
+
+        :type start: int
+        :param start: Optional, the first byte in a range to be downloaded.
+
+        :type end: int
+        :param end: Optional, The last byte in a range to be downloaded.
         """
         if self.chunk_size is None:
-            download = Download(download_url, stream=file_obj, headers=headers)
+            download = Download(
+                download_url, stream=file_obj, headers=headers, start=start, end=end
+            )
             download.consume(transport)
         else:
             download = ChunkedDownload(
-                download_url, self.chunk_size, file_obj, headers=headers)
+                download_url,
+                self.chunk_size,
+                file_obj,
+                headers=headers,
+                start=start if start else 0,
+                end=end,
+            )
 
             while not download.finished:
                 download.consume_next_chunk(transport)
 
-    def download_to_file(self, file_obj, client=None):
+    def download_to_file(self, file_obj, client=None, start=None, end=None):
         """Download the contents of this blob into a file-like object.
 
         .. note::
@@ -487,19 +543,25 @@ class Blob(_PropertyMixin):
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
 
+        :type start: int
+        :param start: Optional, the first byte in a range to be downloaded.
+
+        :type end: int
+        :param end: Optional, The last byte in a range to be downloaded.
+
         :raises: :class:`google.cloud.exceptions.NotFound`
         """
         download_url = self._get_download_url()
         headers = _get_encryption_headers(self._encryption_key)
-        headers['accept-encoding'] = 'gzip'
+        headers["accept-encoding"] = "gzip"
 
         transport = self._get_transport(client)
         try:
-            self._do_download(transport, file_obj, download_url, headers)
+            self._do_download(transport, file_obj, download_url, headers, start, end)
         except resumable_media.InvalidResponse as exc:
             _raise_from_invalid_response(exc)
 
-    def download_to_filename(self, filename, client=None):
+    def download_to_filename(self, filename, client=None, start=None, end=None):
         """Download the contents of this blob into a named file.
 
         If :attr:`user_project` is set on the bucket, bills the API request
@@ -513,12 +575,18 @@ class Blob(_PropertyMixin):
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
 
+        :type start: int
+        :param start: Optional, the first byte in a range to be downloaded.
+
+        :type end: int
+        :param end: Optional, The last byte in a range to be downloaded.
+
         :raises: :class:`google.cloud.exceptions.NotFound`
         """
         try:
-            with open(filename, 'wb') as file_obj:
-                self.download_to_file(file_obj, client=client)
-        except resumable_media.DataCorruption as exc:
+            with open(filename, "wb") as file_obj:
+                self.download_to_file(file_obj, client=client, start=start, end=end)
+        except resumable_media.DataCorruption:
             # Delete the corrupt downloaded file.
             os.remove(filename)
             raise
@@ -528,7 +596,7 @@ class Blob(_PropertyMixin):
             mtime = time.mktime(updated.timetuple())
             os.utime(file_obj.name, (mtime, mtime))
 
-    def download_as_string(self, client=None):
+    def download_as_string(self, client=None, start=None, end=None):
         """Download the contents of this blob as a string.
 
         If :attr:`user_project` is set on the bucket, bills the API request
@@ -539,12 +607,18 @@ class Blob(_PropertyMixin):
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
 
+        :type start: int
+        :param start: Optional, the first byte in a range to be downloaded.
+
+        :type end: int
+        :param end: Optional, The last byte in a range to be downloaded.
+
         :rtype: bytes
         :returns: The data stored in this blob.
         :raises: :class:`google.cloud.exceptions.NotFound`
         """
         string_buffer = BytesIO()
-        self.download_to_file(string_buffer, client=client)
+        self.download_to_file(string_buffer, client=client, start=start, end=end)
         return string_buffer.getvalue()
 
     def _get_content_type(self, content_type, filename=None):
@@ -601,7 +675,7 @@ class Blob(_PropertyMixin):
         managed directly through :class:`ObjectACL` methods.
         """
         # NOTE: This assumes `self.name` is unicode.
-        object_metadata = {'name': self.name}
+        object_metadata = {"name": self.name}
         for key in self._changes:
             if key in _WRITABLE_FIELDS:
                 object_metadata[key] = self._properties[key]
@@ -632,11 +706,10 @@ class Blob(_PropertyMixin):
         content_type = self._get_content_type(content_type)
         return headers, object_metadata, content_type
 
-    def _do_multipart_upload(self, client, stream, content_type,
-                             size, num_retries):
+    def _do_multipart_upload(
+        self, client, stream, content_type, size, num_retries, predefined_acl
+    ):
         """Perform a multipart upload.
-
-        Assumes ``chunk_size`` is :data:`None` on the current blob.
 
         The content type of the upload will be determined in order
         of precedence:
@@ -664,6 +737,9 @@ class Blob(_PropertyMixin):
         :param num_retries: Number of upload retries. (Deprecated: This
                             argument will be removed in a future release.)
 
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
+
         :rtype: :class:`~requests.Response`
         :returns: The "200 OK" response object returned after the multipart
                   upload request.
@@ -682,28 +758,41 @@ class Blob(_PropertyMixin):
         info = self._get_upload_arguments(content_type)
         headers, object_metadata, content_type = info
 
-        base_url = _MULTIPART_URL_TEMPLATE.format(
-            bucket_path=self.bucket.path)
+        base_url = _MULTIPART_URL_TEMPLATE.format(bucket_path=self.bucket.path)
         name_value_pairs = []
 
         if self.user_project is not None:
-            name_value_pairs.append(('userProject', self.user_project))
+            name_value_pairs.append(("userProject", self.user_project))
+
+        if self.kms_key_name is not None:
+            name_value_pairs.append(("kmsKeyName", self.kms_key_name))
+
+        if predefined_acl is not None:
+            name_value_pairs.append(("predefinedAcl", predefined_acl))
 
         upload_url = _add_query_parameters(base_url, name_value_pairs)
         upload = MultipartUpload(upload_url, headers=headers)
 
         if num_retries is not None:
             upload._retry_strategy = resumable_media.RetryStrategy(
-                max_retries=num_retries)
+                max_retries=num_retries
+            )
 
-        response = upload.transmit(
-            transport, data, object_metadata, content_type)
+        response = upload.transmit(transport, data, object_metadata, content_type)
 
         return response
 
-    def _initiate_resumable_upload(self, client, stream, content_type,
-                                   size, num_retries, extra_headers=None,
-                                   chunk_size=None):
+    def _initiate_resumable_upload(
+        self,
+        client,
+        stream,
+        content_type,
+        size,
+        num_retries,
+        predefined_acl=None,
+        extra_headers=None,
+        chunk_size=None,
+    ):
         """Initiate a resumable upload.
 
         The content type of the upload will be determined in order
@@ -727,6 +816,9 @@ class Blob(_PropertyMixin):
         :param size: The number of bytes to be uploaded (which will be read
                      from ``stream``). If not provided, the upload will be
                      concluded once ``stream`` is exhausted (or :data:`None`).
+
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
 
         :type num_retries: int
         :param num_retries: Number of upload retries. (Deprecated: This
@@ -753,6 +845,8 @@ class Blob(_PropertyMixin):
         """
         if chunk_size is None:
             chunk_size = self.chunk_size
+            if chunk_size is None:
+                chunk_size = _DEFAULT_CHUNKSIZE
 
         transport = self._get_transport(client)
         info = self._get_upload_arguments(content_type)
@@ -760,28 +854,40 @@ class Blob(_PropertyMixin):
         if extra_headers is not None:
             headers.update(extra_headers)
 
-        base_url = _RESUMABLE_URL_TEMPLATE.format(
-            bucket_path=self.bucket.path)
+        base_url = _RESUMABLE_URL_TEMPLATE.format(bucket_path=self.bucket.path)
         name_value_pairs = []
 
         if self.user_project is not None:
-            name_value_pairs.append(('userProject', self.user_project))
+            name_value_pairs.append(("userProject", self.user_project))
+
+        if self.kms_key_name is not None:
+            name_value_pairs.append(("kmsKeyName", self.kms_key_name))
+
+        if predefined_acl is not None:
+            name_value_pairs.append(("predefinedAcl", predefined_acl))
 
         upload_url = _add_query_parameters(base_url, name_value_pairs)
         upload = ResumableUpload(upload_url, chunk_size, headers=headers)
 
         if num_retries is not None:
             upload._retry_strategy = resumable_media.RetryStrategy(
-                max_retries=num_retries)
+                max_retries=num_retries
+            )
 
         upload.initiate(
-            transport, stream, object_metadata, content_type,
-            total_bytes=size, stream_final=False)
+            transport,
+            stream,
+            object_metadata,
+            content_type,
+            total_bytes=size,
+            stream_final=False,
+        )
 
         return upload, transport
 
-    def _do_resumable_upload(self, client, stream, content_type,
-                             size, num_retries):
+    def _do_resumable_upload(
+        self, client, stream, content_type, size, num_retries, predefined_acl
+    ):
         """Perform a resumable upload.
 
         Assumes ``chunk_size`` is not :data:`None` on the current blob.
@@ -812,24 +918,35 @@ class Blob(_PropertyMixin):
         :param num_retries: Number of upload retries. (Deprecated: This
                             argument will be removed in a future release.)
 
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
+
         :rtype: :class:`~requests.Response`
         :returns: The "200 OK" response object returned after the final chunk
                   is uploaded.
         """
         upload, transport = self._initiate_resumable_upload(
-            client, stream, content_type, size, num_retries)
+            client,
+            stream,
+            content_type,
+            size,
+            num_retries,
+            predefined_acl=predefined_acl,
+        )
 
         while not upload.finished:
             response = upload.transmit_next_chunk(transport)
 
         return response
 
-    def _do_upload(self, client, stream, content_type, size, num_retries):
+    def _do_upload(
+        self, client, stream, content_type, size, num_retries, predefined_acl
+    ):
         """Determine an upload strategy and then perform the upload.
 
-        If the current blob has a ``chunk_size`` set, then a resumable upload
-        will be used, otherwise the content and the metadata will be uploaded
-        in a single multipart upload request.
+        If the size of the data to be uploaded exceeds 5 MB a resumable media
+        request will be used, otherwise the content and the metadata will be
+        uploaded in a single multipart upload request.
 
         The content type of the upload will be determined in order
         of precedence:
@@ -857,22 +974,35 @@ class Blob(_PropertyMixin):
         :param num_retries: Number of upload retries. (Deprecated: This
                             argument will be removed in a future release.)
 
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
+
         :rtype: dict
         :returns: The parsed JSON from the "200 OK" response. This will be the
                   **only** response in the multipart case and it will be the
                   **final** response in the resumable case.
         """
-        if self.chunk_size is None:
+        if size is not None and size <= _MAX_MULTIPART_SIZE:
             response = self._do_multipart_upload(
-                client, stream, content_type, size, num_retries)
+                client, stream, content_type, size, num_retries, predefined_acl
+            )
         else:
             response = self._do_resumable_upload(
-                client, stream, content_type, size, num_retries)
+                client, stream, content_type, size, num_retries, predefined_acl
+            )
 
         return response.json()
 
-    def upload_from_file(self, file_obj, rewind=False, size=None,
-                         content_type=None, num_retries=None, client=None):
+    def upload_from_file(
+        self,
+        file_obj,
+        rewind=False,
+        size=None,
+        content_type=None,
+        num_retries=None,
+        client=None,
+        predefined_acl=None,
+    ):
         """Upload the contents of this blob from a file-like object.
 
         The content type of the upload will be determined in order
@@ -930,6 +1060,9 @@ class Blob(_PropertyMixin):
         :param client: (Optional) The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
 
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
+
         :raises: :class:`~google.cloud.exceptions.GoogleCloudError`
                  if the upload response returns an error status.
 
@@ -938,17 +1071,22 @@ class Blob(_PropertyMixin):
         .. _lifecycle: https://cloud.google.com/storage/docs/lifecycle
         """
         if num_retries is not None:
-            warnings.warn(_NUM_RETRIES_MESSAGE, DeprecationWarning)
+            warnings.warn(_NUM_RETRIES_MESSAGE, DeprecationWarning, stacklevel=2)
 
         _maybe_rewind(file_obj, rewind=rewind)
+        predefined_acl = ACL.validate_predefined(predefined_acl)
+
         try:
             created_json = self._do_upload(
-                client, file_obj, content_type, size, num_retries)
+                client, file_obj, content_type, size, num_retries, predefined_acl
+            )
             self._set_properties(created_json)
         except resumable_media.InvalidResponse as exc:
             _raise_from_invalid_response(exc)
 
-    def upload_from_filename(self, filename, content_type=None, client=None):
+    def upload_from_filename(
+        self, filename, content_type=None, client=None, predefined_acl=None
+    ):
         """Upload this blob's contents from the content of a named file.
 
         The content type of the upload will be determined in order
@@ -982,16 +1120,25 @@ class Blob(_PropertyMixin):
         :type client: :class:`~google.cloud.storage.client.Client`
         :param client: (Optional) The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
+
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
         """
         content_type = self._get_content_type(content_type, filename=filename)
 
-        with open(filename, 'rb') as file_obj:
+        with open(filename, "rb") as file_obj:
             total_bytes = os.fstat(file_obj.fileno()).st_size
             self.upload_from_file(
-                file_obj, content_type=content_type, client=client,
-                size=total_bytes)
+                file_obj,
+                content_type=content_type,
+                client=client,
+                size=total_bytes,
+                predefined_acl=predefined_acl,
+            )
 
-    def upload_from_string(self, data, content_type='text/plain', client=None):
+    def upload_from_string(
+        self, data, content_type="text/plain", client=None, predefined_acl=None
+    ):
         """Upload contents of this blob from the provided string.
 
         .. note::
@@ -1020,19 +1167,23 @@ class Blob(_PropertyMixin):
                       ``NoneType``
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
+
+        :type predefined_acl: str
+        :param predefined_acl: (Optional) predefined access control list
         """
-        data = _to_bytes(data, encoding='utf-8')
+        data = _to_bytes(data, encoding="utf-8")
         string_buffer = BytesIO(data)
         self.upload_from_file(
-            file_obj=string_buffer, size=len(data),
-            content_type=content_type, client=client)
+            file_obj=string_buffer,
+            size=len(data),
+            content_type=content_type,
+            client=client,
+            predefined_acl=predefined_acl,
+        )
 
     def create_resumable_upload_session(
-            self,
-            content_type=None,
-            size=None,
-            origin=None,
-            client=None):
+        self, content_type=None, size=None, origin=None, client=None
+    ):
         """Create a resumable upload session.
 
         Resumable upload sessions allow you to start an upload session from
@@ -1101,17 +1252,23 @@ class Blob(_PropertyMixin):
         if origin is not None:
             # This header is specifically for client-side uploads, it
             # determines the origins allowed for CORS.
-            extra_headers['Origin'] = origin
+            extra_headers["Origin"] = origin
 
         try:
-            dummy_stream = BytesIO(b'')
+            dummy_stream = BytesIO(b"")
             # Send a fake the chunk size which we **know** will be acceptable
             # to the `ResumableUpload` constructor. The chunk size only
             # matters when **sending** bytes to an upload.
             upload, _ = self._initiate_resumable_upload(
-                client, dummy_stream, content_type, size, None,
+                client,
+                dummy_stream,
+                content_type,
+                size,
+                None,
+                predefined_acl=None,
                 extra_headers=extra_headers,
-                chunk_size=self._CHUNK_SIZE_MULTIPLE)
+                chunk_size=self._CHUNK_SIZE_MULTIPLE,
+            )
 
             return upload.resumable_url
         except resumable_media.InvalidResponse as exc:
@@ -1120,8 +1277,13 @@ class Blob(_PropertyMixin):
     def get_iam_policy(self, client=None):
         """Retrieve the IAM policy for the object.
 
-        See
-        https://cloud.google.com/storage/docs/json_api/v1/objects/getIamPolicy
+        .. note:
+
+           Blob- / object-level IAM support does not yet exist and methods
+           currently call an internal ACL backend not providing any utility
+           beyond the blob's :attr:`acl` at this time. The API may be enhanced
+           in the future and is currently undocumented. Use :attr:`acl` for
+           managing object access control.
 
         If :attr:`user_project` is set on the bucket, bills the API request
         to that project.
@@ -1131,7 +1293,7 @@ class Blob(_PropertyMixin):
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the current object's bucket.
 
-        :rtype: :class:`google.cloud.iam.Policy`
+        :rtype: :class:`google.api_core.iam.Policy`
         :returns: the policy instance, based on the resource returned from
                   the ``getIamPolicy`` API request.
         """
@@ -1140,25 +1302,31 @@ class Blob(_PropertyMixin):
         query_params = {}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
         info = client._connection.api_request(
-            method='GET',
-            path='%s/iam' % (self.path,),
+            method="GET",
+            path="%s/iam" % (self.path,),
             query_params=query_params,
-            _target_object=None)
+            _target_object=None,
+        )
         return Policy.from_api_repr(info)
 
     def set_iam_policy(self, policy, client=None):
         """Update the IAM policy for the bucket.
 
-        See
-        https://cloud.google.com/storage/docs/json_api/v1/objects/setIamPolicy
+        .. note:
+
+           Blob- / object-level IAM support does not yet exist and methods
+           currently call an internal ACL backend not providing any utility
+           beyond the blob's :attr:`acl` at this time. The API may be enhanced
+           in the future and is currently undocumented. Use :attr:`acl` for
+           managing object access control.
 
         If :attr:`user_project` is set on the bucket, bills the API request
         to that project.
 
-        :type policy: :class:`google.cloud.iam.Policy`
+        :type policy: :class:`google.api_core.iam.Policy`
         :param policy: policy instance used to update bucket's IAM policy.
 
         :type client: :class:`~google.cloud.storage.client.Client` or
@@ -1166,7 +1334,7 @@ class Blob(_PropertyMixin):
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the current bucket.
 
-        :rtype: :class:`google.cloud.iam.Policy`
+        :rtype: :class:`google.api_core.iam.Policy`
         :returns: the policy instance, based on the resource returned from
                   the ``setIamPolicy`` API request.
         """
@@ -1175,23 +1343,29 @@ class Blob(_PropertyMixin):
         query_params = {}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
         resource = policy.to_api_repr()
-        resource['resourceId'] = self.path
+        resource["resourceId"] = self.path
         info = client._connection.api_request(
-            method='PUT',
-            path='%s/iam' % (self.path,),
+            method="PUT",
+            path="%s/iam" % (self.path,),
             query_params=query_params,
             data=resource,
-            _target_object=None)
+            _target_object=None,
+        )
         return Policy.from_api_repr(info)
 
     def test_iam_permissions(self, permissions, client=None):
         """API call:  test permissions
 
-        See
-        https://cloud.google.com/storage/docs/json_api/v1/objects/testIamPermissions
+        .. note:
+
+           Blob- / object-level IAM support does not yet exist and methods
+           currently call an internal ACL backend not providing any utility
+           beyond the blob's :attr:`acl` at this time. The API may be enhanced
+           in the future and is currently undocumented. Use :attr:`acl` for
+           managing object access control.
 
         If :attr:`user_project` is set on the bucket, bills the API request
         to that project.
@@ -1209,21 +1383,20 @@ class Blob(_PropertyMixin):
                   request.
         """
         client = self._require_client(client)
-        query_params = {'permissions': permissions}
+        query_params = {"permissions": permissions}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
-        path = '%s/iam/testPermissions' % (self.path,)
+        path = "%s/iam/testPermissions" % (self.path,)
         resp = client._connection.api_request(
-            method='GET',
-            path=path,
-            query_params=query_params)
+            method="GET", path=path, query_params=query_params
+        )
 
-        return resp.get('permissions', [])
+        return resp.get("permissions", [])
 
     def make_public(self, client=None):
-        """Make this blob public giving all users read access.
+        """Update blob's ACL, granting read access to anonymous users.
 
         :type client: :class:`~google.cloud.storage.client.Client` or
                       ``NoneType``
@@ -1231,6 +1404,17 @@ class Blob(_PropertyMixin):
                        to the ``client`` stored on the blob's bucket.
         """
         self.acl.all().grant_read()
+        self.acl.save(client=client)
+
+    def make_private(self, client=None):
+        """Update blob's ACL, revoking read access for anonymous users.
+
+        :type client: :class:`~google.cloud.storage.client.Client` or
+                      ``NoneType``
+        :param client: Optional. The client to use.  If not passed, falls back
+                       to the ``client`` stored on the blob's bucket.
+        """
+        self.acl.all().revoke_read()
         self.acl.save(client=client)
 
     def compose(self, sources, client=None):
@@ -1246,29 +1430,24 @@ class Blob(_PropertyMixin):
                       ``NoneType``
         :param client: Optional. The client to use.  If not passed, falls back
                        to the ``client`` stored on the blob's bucket.
-
-        :raises: :exc:`ValueError` if this blob does not have its
-                 :attr:`content_type` set.
         """
-        if self.content_type is None:
-            raise ValueError("Destination 'content_type' not set.")
-
         client = self._require_client(client)
         query_params = {}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
         request = {
-            'sourceObjects': [{'name': source.name} for source in sources],
-            'destination': self._properties.copy(),
+            "sourceObjects": [{"name": source.name} for source in sources],
+            "destination": self._properties.copy(),
         }
         api_response = client._connection.api_request(
-            method='POST',
-            path=self.path + '/compose',
+            method="POST",
+            path=self.path + "/compose",
             query_params=query_params,
             data=request,
-            _target_object=self)
+            _target_object=self,
+        )
         self._set_properties(api_response)
 
     def rewrite(self, source, token=None, client=None):
@@ -1299,35 +1478,38 @@ class Blob(_PropertyMixin):
         """
         client = self._require_client(client)
         headers = _get_encryption_headers(self._encryption_key)
-        headers.update(_get_encryption_headers(
-            source._encryption_key, source=True))
+        headers.update(_get_encryption_headers(source._encryption_key, source=True))
 
         query_params = {}
 
         if token:
-            query_params['rewriteToken'] = token
+            query_params["rewriteToken"] = token
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
+
+        if self.kms_key_name is not None:
+            query_params["destinationKmsKeyName"] = self.kms_key_name
 
         api_response = client._connection.api_request(
-            method='POST',
-            path=source.path + '/rewriteTo' + self.path,
+            method="POST",
+            path=source.path + "/rewriteTo" + self.path,
             query_params=query_params,
             data=self._properties,
             headers=headers,
-            _target_object=self)
-        rewritten = int(api_response['totalBytesRewritten'])
-        size = int(api_response['objectSize'])
+            _target_object=self,
+        )
+        rewritten = int(api_response["totalBytesRewritten"])
+        size = int(api_response["objectSize"])
 
         # The resource key is set if and only if the API response is
         # completely done. Additionally, there is no rewrite token to return
         # in this case.
-        if api_response['done']:
-            self._set_properties(api_response['resource'])
+        if api_response["done"]:
+            self._set_properties(api_response["resource"])
             return None, rewritten, size
 
-        return api_response['rewriteToken'], rewritten, size
+        return api_response["rewriteToken"], rewritten, size
 
     def update_storage_class(self, new_class, client=None):
         """Update blob's storage class via a rewrite-in-place.
@@ -1353,63 +1535,55 @@ class Blob(_PropertyMixin):
         query_params = {}
 
         if self.user_project is not None:
-            query_params['userProject'] = self.user_project
+            query_params["userProject"] = self.user_project
 
         headers = _get_encryption_headers(self._encryption_key)
-        headers.update(_get_encryption_headers(
-            self._encryption_key, source=True))
+        headers.update(_get_encryption_headers(self._encryption_key, source=True))
 
         api_response = client._connection.api_request(
-            method='POST',
-            path=self.path + '/rewriteTo' + self.path,
+            method="POST",
+            path=self.path + "/rewriteTo" + self.path,
             query_params=query_params,
-            data={'storageClass': new_class},
+            data={"storageClass": new_class},
             headers=headers,
-            _target_object=self)
-        self._set_properties(api_response['resource'])
+            _target_object=self,
+        )
+        self._set_properties(api_response["resource"])
 
-    cache_control = _scalar_property('cacheControl')
+    cache_control = _scalar_property("cacheControl")
     """HTTP 'Cache-Control' header for this object.
 
     See `RFC 7234`_ and `API reference docs`_.
-
-    If the property is not set locally, returns :data:`None`.
 
     :rtype: str or ``NoneType``
 
     .. _RFC 7234: https://tools.ietf.org/html/rfc7234#section-5.2
     """
 
-    content_disposition = _scalar_property('contentDisposition')
+    content_disposition = _scalar_property("contentDisposition")
     """HTTP 'Content-Disposition' header for this object.
 
     See `RFC 6266`_ and `API reference docs`_.
-
-    If the property is not set locally, returns :data:`None`.
 
     :rtype: str or ``NoneType``
 
     .. _RFC 6266: https://tools.ietf.org/html/rfc7234#section-5.2
     """
 
-    content_encoding = _scalar_property('contentEncoding')
+    content_encoding = _scalar_property("contentEncoding")
     """HTTP 'Content-Encoding' header for this object.
 
     See `RFC 7231`_ and `API reference docs`_.
-
-    If the property is not set locally, returns ``None``.
 
     :rtype: str or ``NoneType``
 
     .. _RFC 7231: https://tools.ietf.org/html/rfc7231#section-3.1.2.2
     """
 
-    content_language = _scalar_property('contentLanguage')
+    content_language = _scalar_property("contentLanguage")
     """HTTP 'Content-Language' header for this object.
 
     See `BCP47`_ and `API reference docs`_.
-
-    If the property is not set locally, returns :data:`None`.
 
     :rtype: str or ``NoneType``
 
@@ -1421,19 +1595,17 @@ class Blob(_PropertyMixin):
 
     See `RFC 2616`_ and `API reference docs`_.
 
-    If the property is not set locally, returns :data:`None`.
-
     :rtype: str or ``NoneType``
 
     .. _RFC 2616: https://tools.ietf.org/html/rfc2616#section-14.17
     """
 
-    crc32c = _scalar_property('crc32c')
+    crc32c = _scalar_property("crc32c")
     """CRC32C checksum for this object.
 
     See `RFC 4960`_ and `API reference docs`_.
 
-    If the property is not set locally, returns :data:`None`.
+    If not set before upload, the server will compute the hash.
 
     :rtype: str or ``NoneType``
 
@@ -1448,10 +1620,11 @@ class Blob(_PropertyMixin):
 
         :rtype: int or ``NoneType``
         :returns: The component count (in case of a composed object) or
-                  ``None`` if the property is not set locally. This property
-                  will not be set on objects not created via ``compose``.
+                  ``None`` if the blob's resource has not been loaded from
+                  the server.  This property will not be set on objects
+                  not created via ``compose``.
         """
-        component_count = self._properties.get('componentCount')
+        component_count = self._properties.get("componentCount")
         if component_count is not None:
             return int(component_count)
 
@@ -1462,11 +1635,22 @@ class Blob(_PropertyMixin):
         See `RFC 2616 (etags)`_ and `API reference docs`_.
 
         :rtype: str or ``NoneType``
-        :returns: The blob etag or ``None`` if the property is not set locally.
+        :returns: The blob etag or ``None`` if the blob's resource has not
+                  been loaded from the server.
 
         .. _RFC 2616 (etags): https://tools.ietf.org/html/rfc2616#section-3.11
         """
-        return self._properties.get('etag')
+        return self._properties.get("etag")
+
+    event_based_hold = _scalar_property("eventBasedHold")
+    """Is an event-based hold active on the object?
+
+    See `API reference docs`_.
+
+    If the property is not set locally, returns :data:`None`.
+
+    :rtype: bool or ``NoneType``
+    """
 
     @property
     def generation(self):
@@ -1475,10 +1659,10 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: int or ``NoneType``
-        :returns: The generation of the blob or ``None`` if the property
-                  is not set locally.
+        :returns: The generation of the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        generation = self._properties.get('generation')
+        generation = self._properties.get("generation")
         if generation is not None:
             return int(generation)
 
@@ -1488,18 +1672,20 @@ class Blob(_PropertyMixin):
 
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
-        :rtype: str or ``NoneType``
-        :returns: The ID of the blob or ``None`` if the property is not
-                  set locally.
-        """
-        return self._properties.get('id')
+        The ID consists of the bucket name, object name, and generation number.
 
-    md5_hash = _scalar_property('md5Hash')
+        :rtype: str or ``NoneType``
+        :returns: The ID of the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
+        """
+        return self._properties.get("id")
+
+    md5_hash = _scalar_property("md5Hash")
     """MD5 hash for this object.
 
     See `RFC 1321`_ and `API reference docs`_.
 
-    If the property is not set locally, returns ``None``.
+    If not set before upload, the server will compute the hash.
 
     :rtype: str or ``NoneType``
 
@@ -1513,10 +1699,10 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: str or ``NoneType``
-        :returns: The media link for the blob or ``None`` if the property is
-                  not set locally.
+        :returns: The media link for the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        return self._properties.get('mediaLink')
+        return self._properties.get("mediaLink")
 
     @property
     def metadata(self):
@@ -1531,9 +1717,9 @@ class Blob(_PropertyMixin):
 
         :rtype: dict or ``NoneType``
         :returns: The metadata associated with the blob or ``None`` if the
-                  property is not set locally.
+                  property is not set.
         """
-        return copy.deepcopy(self._properties.get('metadata'))
+        return copy.deepcopy(self._properties.get("metadata"))
 
     @metadata.setter
     def metadata(self, value):
@@ -1544,7 +1730,7 @@ class Blob(_PropertyMixin):
         :type value: dict
         :param value: (Optional) The blob metadata to set.
         """
-        self._patch_property('metadata', value)
+        self._patch_property("metadata", value)
 
     @property
     def metageneration(self):
@@ -1553,10 +1739,10 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: int or ``NoneType``
-        :returns: The metageneration of the blob or ``None`` if the property
-                  is not set locally.
+        :returns: The metageneration of the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        metageneration = self._properties.get('metageneration')
+        metageneration = self._properties.get("metageneration")
         if metageneration is not None:
             return int(metageneration)
 
@@ -1567,10 +1753,24 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: dict or ``NoneType``
-        :returns: Mapping of owner's role/ID. If the property is not set
-                  locally, returns ``None``.
+        :returns: Mapping of owner's role/ID, or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        return copy.deepcopy(self._properties.get('owner'))
+        return copy.deepcopy(self._properties.get("owner"))
+
+    @property
+    def retention_expiration_time(self):
+        """Retrieve timestamp at which the object's retention period expires.
+
+        See https://cloud.google.com/storage/docs/json_api/v1/objects
+
+        :rtype: :class:`datetime.datetime` or ``NoneType``
+        :returns: Datetime object parsed from RFC3339 valid timestamp, or
+                  ``None`` if the property is not set locally.
+        """
+        value = self._properties.get("retentionExpirationTime")
+        if value is not None:
+            return _rfc3339_to_datetime(value)
 
     @property
     def self_link(self):
@@ -1579,10 +1779,10 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: str or ``NoneType``
-        :returns: The self link for the blob or ``None`` if the property is
-                  not set locally.
+        :returns: The self link for the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        return self._properties.get('selfLink')
+        return self._properties.get("selfLink")
 
     @property
     def size(self):
@@ -1591,14 +1791,25 @@ class Blob(_PropertyMixin):
         See https://cloud.google.com/storage/docs/json_api/v1/objects
 
         :rtype: int or ``NoneType``
-        :returns: The size of the blob or ``None`` if the property
-                  is not set locally.
+        :returns: The size of the blob or ``None`` if the blob's
+                  resource has not been loaded from the server.
         """
-        size = self._properties.get('size')
+        size = self._properties.get("size")
         if size is not None:
             return int(size)
 
-    storage_class = _scalar_property('storageClass')
+    @property
+    def kms_key_name(self):
+        """Resource name of Cloud KMS key used to encrypt the blob's contents.
+
+        :rtype: str or ``NoneType``
+        :returns:
+            The resource name or ``None`` if no Cloud KMS key was used,
+            or the blob's resource has not been loaded from the server.
+        """
+        return self._properties.get("kmsKeyName")
+
+    storage_class = _scalar_property("storageClass")
     """Retrieve the storage class for the object.
 
     This can only be set at blob / object **creation** time. If you'd
@@ -1614,6 +1825,16 @@ class Blob(_PropertyMixin):
               "DURABLE_REDUCED_AVAILABILITY", else ``None``.
     """
 
+    temporary_hold = _scalar_property("temporaryHold")
+    """Is a temporary hold active on the object?
+
+    See `API reference docs`_.
+
+    If the property is not set locally, returns :data:`None`.
+
+    :rtype: bool or ``NoneType``
+    """
+
     @property
     def time_deleted(self):
         """Retrieve the timestamp at which the object was deleted.
@@ -1622,10 +1843,11 @@ class Blob(_PropertyMixin):
 
         :rtype: :class:`datetime.datetime` or ``NoneType``
         :returns: Datetime object parsed from RFC3339 valid timestamp, or
-                  ``None`` if the property is not set locally. If the blob has
+                  ``None`` if the blob's resource has not been loaded from
+                  the server (see :meth:`reload`). If the blob has
                   not been deleted, this will never be set.
         """
-        value = self._properties.get('timeDeleted')
+        value = self._properties.get("timeDeleted")
         if value is not None:
             return _rfc3339_to_datetime(value)
 
@@ -1637,9 +1859,10 @@ class Blob(_PropertyMixin):
 
         :rtype: :class:`datetime.datetime` or ``NoneType``
         :returns: Datetime object parsed from RFC3339 valid timestamp, or
-                  ``None`` if the property is not set locally.
+                  ``None`` if the blob's resource has not been loaded from
+                  the server (see :meth:`reload`).
         """
-        value = self._properties.get('timeCreated')
+        value = self._properties.get("timeCreated")
         if value is not None:
             return _rfc3339_to_datetime(value)
 
@@ -1651,9 +1874,10 @@ class Blob(_PropertyMixin):
 
         :rtype: :class:`datetime.datetime` or ``NoneType``
         :returns: Datetime object parsed from RFC3339 valid timestamp, or
-                  ``None`` if the property is not set locally.
+                  ``None`` if the blob's resource has not been loaded from
+                  the server (see :meth:`reload`).
         """
-        value = self._properties.get('updated')
+        value = self._properties.get("updated")
         if value is not None:
             return _rfc3339_to_datetime(value)
 
@@ -1680,14 +1904,14 @@ def _get_encryption_headers(key, source=False):
     key = base64.b64encode(key)
 
     if source:
-        prefix = 'X-Goog-Copy-Source-Encryption-'
+        prefix = "X-Goog-Copy-Source-Encryption-"
     else:
-        prefix = 'X-Goog-Encryption-'
+        prefix = "X-Goog-Encryption-"
 
     return {
-        prefix + 'Algorithm': 'AES256',
-        prefix + 'Key': _bytes_to_unicode(key),
-        prefix + 'Key-Sha256': _bytes_to_unicode(key_hash),
+        prefix + "Algorithm": "AES256",
+        prefix + "Key": _bytes_to_unicode(key),
+        prefix + "Key-Sha256": _bytes_to_unicode(key_hash),
     }
 
 
@@ -1705,8 +1929,8 @@ def _quote(value):
     :rtype: str
     :returns: The encoded value (bytes in Python 2, unicode in Python 3).
     """
-    value = _to_bytes(value, encoding='utf-8')
-    return quote(value, safe='')
+    value = _to_bytes(value, encoding="utf-8")
+    return quote(value, safe="")
 
 
 def _maybe_rewind(stream, rewind=False):
@@ -1732,7 +1956,14 @@ def _raise_from_invalid_response(error):
     :raises: :class:`~google.cloud.exceptions.GoogleCloudError` corresponding
              to the failed status code
     """
-    raise exceptions.from_http_response(error.response)
+    response = error.response
+    error_message = str(error)
+
+    message = u"{method} {url}: {error}".format(
+        method=response.request.method, url=response.request.url, error=error_message
+    )
+
+    raise exceptions.from_http_status(response.status_code, message, response=response)
 
 
 def _add_query_parameters(base_url, name_value_pairs):

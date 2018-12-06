@@ -15,24 +15,17 @@
 """User-friendly container for Google Cloud Bigtable Row."""
 
 
-import functools
 import struct
 
-import grpc
 import six
 
-from google.api_core import exceptions
-from google.api_core import retry
 from google.cloud._helpers import _datetime_from_microseconds
 from google.cloud._helpers import _microseconds_from_datetime
 from google.cloud._helpers import _to_bytes
-from google.cloud.bigtable._generated import (
-    data_pb2 as data_v2_pb2)
-from google.cloud.bigtable._generated import (
-    bigtable_pb2 as messages_v2_pb2)
+from google.cloud.bigtable_v2.proto import data_pb2 as data_v2_pb2
 
 
-_PACK_I64 = struct.Struct('>q').pack
+_PACK_I64 = struct.Struct(">q").pack
 
 MAX_MUTATIONS = 100000
 """The maximum number of mutations that a row can accumulate."""
@@ -52,10 +45,10 @@ class Row(object):
     :param row_key: The key for the current row.
 
     :type table: :class:`Table <google.cloud.bigtable.table.Table>`
-    :param table: The table that owns the row.
+    :param table: (Optional) The table that owns the row.
     """
 
-    def __init__(self, row_key, table):
+    def __init__(self, row_key, table=None):
         self._row_key = _to_bytes(row_key)
         self._table = table
 
@@ -98,7 +91,7 @@ class _SetDeleteRow(Row):
     ALL_COLUMNS = object()
     """Sentinel value used to indicate all columns in a column family."""
 
-    def _get_mutations(self, state):
+    def _get_mutations(self, state=None):
         """Gets the list of mutations for a given state.
 
         This method intended to be implemented by subclasses.
@@ -114,8 +107,7 @@ class _SetDeleteRow(Row):
         """
         raise NotImplementedError
 
-    def _set_cell(self, column_family_id, column, value, timestamp=None,
-                  state=None):
+    def _set_cell(self, column_family_id, column, value, timestamp=None, state=None):
         """Helper for :meth:`set_cell`
 
         Adds a mutation to set the value in a specific cell.
@@ -154,7 +146,7 @@ class _SetDeleteRow(Row):
         else:
             timestamp_micros = _microseconds_from_datetime(timestamp)
             # Truncate to millisecond granularity.
-            timestamp_micros -= (timestamp_micros % 1000)
+            timestamp_micros -= timestamp_micros % 1000
 
         mutation_val = data_v2_pb2.Mutation.SetCell(
             family_name=column_family_id,
@@ -182,8 +174,7 @@ class _SetDeleteRow(Row):
         mutation_pb = data_v2_pb2.Mutation(delete_from_row=mutation_val)
         self._get_mutations(state).append(mutation_pb)
 
-    def _delete_cells(self, column_family_id, columns, time_range=None,
-                      state=None):
+    def _delete_cells(self, column_family_id, columns, time_range=None, state=None):
         """Helper for :meth:`delete_cell` and :meth:`delete_cells`.
 
         ``state`` is unused by :class:`DirectRow` but is used by
@@ -211,14 +202,14 @@ class _SetDeleteRow(Row):
         mutations_list = self._get_mutations(state)
         if columns is self.ALL_COLUMNS:
             mutation_val = data_v2_pb2.Mutation.DeleteFromFamily(
-                family_name=column_family_id,
+                family_name=column_family_id
             )
             mutation_pb = data_v2_pb2.Mutation(delete_from_family=mutation_val)
             mutations_list.append(mutation_pb)
         else:
             delete_kwargs = {}
             if time_range is not None:
-                delete_kwargs['time_range'] = time_range.to_pb()
+                delete_kwargs["time_range"] = time_range.to_pb()
 
             to_append = []
             for column in columns:
@@ -226,24 +217,15 @@ class _SetDeleteRow(Row):
                 # time_range will never change if present, but the rest of
                 # delete_kwargs will
                 delete_kwargs.update(
-                    family_name=column_family_id,
-                    column_qualifier=column,
+                    family_name=column_family_id, column_qualifier=column
                 )
-                mutation_val = data_v2_pb2.Mutation.DeleteFromColumn(
-                    **delete_kwargs)
-                mutation_pb = data_v2_pb2.Mutation(
-                    delete_from_column=mutation_val)
+                mutation_val = data_v2_pb2.Mutation.DeleteFromColumn(**delete_kwargs)
+                mutation_pb = data_v2_pb2.Mutation(delete_from_column=mutation_val)
                 to_append.append(mutation_pb)
 
             # We don't add the mutations until all columns have been
             # processed without error.
             mutations_list.extend(to_append)
-
-
-def _retry_commit_exception(exc):
-    if isinstance(exc, grpc.RpcError):
-        exc = exceptions.from_grpc_error(exc)
-    return isinstance(exc, exceptions.ServiceUnavailable)
 
 
 class DirectRow(_SetDeleteRow):
@@ -273,14 +255,17 @@ class DirectRow(_SetDeleteRow):
     :param row_key: The key for the current row.
 
     :type table: :class:`Table <google.cloud.bigtable.table.Table>`
-    :param table: The table that owns the row.
+    :param table: (Optional) The table that owns the row. This is
+                  used for the :meth: `commit` only.  Alternatively,
+                  DirectRows can be persisted via
+                  :meth:`~google.cloud.bigtable.table.Table.mutate_rows`.
     """
 
-    def __init__(self, row_key, table):
+    def __init__(self, row_key, table=None):
         super(DirectRow, self).__init__(row_key, table)
         self._pb_mutations = []
 
-    def _get_mutations(self, state):  # pylint: disable=unused-argument
+    def _get_mutations(self, state=None):  # pylint: disable=unused-argument
         """Gets the list of mutations for a given state.
 
         ``state`` is unused by :class:`DirectRow` but is used by
@@ -294,6 +279,15 @@ class DirectRow(_SetDeleteRow):
         :returns: The list to add new mutations to (for the current state).
         """
         return self._pb_mutations
+
+    def get_mutations_size(self):
+        """ Gets the total mutations size for current row """
+
+        mutation_size = 0
+        for mutation in self._get_mutations():
+            mutation_size += mutation.ByteSize()
+
+        return mutation_size
 
     def set_cell(self, column_family_id, column, value, timestamp=None):
         """Sets a value in this row.
@@ -326,8 +320,7 @@ class DirectRow(_SetDeleteRow):
         :type timestamp: :class:`datetime.datetime`
         :param timestamp: (Optional) The timestamp of the operation.
         """
-        self._set_cell(column_family_id, column, value, timestamp=timestamp,
-                       state=None)
+        self._set_cell(column_family_id, column, value, timestamp=timestamp, state=None)
 
     def delete(self):
         """Deletes this row from the table.
@@ -364,8 +357,9 @@ class DirectRow(_SetDeleteRow):
         :param time_range: (Optional) The range of time within which cells
                            should be deleted.
         """
-        self._delete_cells(column_family_id, [column], time_range=time_range,
-                           state=None)
+        self._delete_cells(
+            column_family_id, [column], time_range=time_range, state=None
+        )
 
     def delete_cells(self, column_family_id, columns, time_range=None):
         """Deletes cells in this row.
@@ -392,8 +386,7 @@ class DirectRow(_SetDeleteRow):
         :param time_range: (Optional) The range of time within which cells
                            should be deleted.
         """
-        self._delete_cells(column_family_id, columns, time_range=time_range,
-                           state=None)
+        self._delete_cells(column_family_id, columns, time_range=time_range, state=None)
 
     def commit(self):
         """Makes a ``MutateRow`` API request.
@@ -407,30 +400,10 @@ class DirectRow(_SetDeleteRow):
         After committing the accumulated mutations, resets the local
         mutations to an empty list.
 
-        :raises: :class:`ValueError <exceptions.ValueError>` if the number of
-                 mutations exceeds the :data:`MAX_MUTATIONS`.
+        :raises: :exc:`~.table.TooManyMutationsError` if the number of
+                 mutations is greater than 100,000.
         """
-        mutations_list = self._get_mutations(None)
-        num_mutations = len(mutations_list)
-        if num_mutations == 0:
-            return
-        if num_mutations > MAX_MUTATIONS:
-            raise ValueError('%d total mutations exceed the maximum allowable '
-                             '%d.' % (num_mutations, MAX_MUTATIONS))
-        request_pb = messages_v2_pb2.MutateRowRequest(
-            table_name=self._table.name,
-            row_key=self._row_key,
-            mutations=mutations_list,
-        )
-
-        commit = functools.partial(
-            self._table._instance._client._data_stub.MutateRow,
-            request_pb)
-        retry_ = retry.Retry(
-            predicate=_retry_commit_exception,
-            deadline=30)
-        retry_(commit)()
-
+        self._table.mutate_rows([self])
         self.clear()
 
     def clear(self):
@@ -474,13 +447,14 @@ class ConditionalRow(_SetDeleteRow):
     :type filter_: :class:`.RowFilter`
     :param filter_: Filter to be used for conditional mutations.
     """
+
     def __init__(self, row_key, table, filter_):
         super(ConditionalRow, self).__init__(row_key, table)
         self._filter = filter_
         self._true_pb_mutations = []
         self._false_pb_mutations = []
 
-    def _get_mutations(self, state):
+    def _get_mutations(self, state=None):
         """Gets the list of mutations for a given state.
 
         Over-ridden so that the state can be used in:
@@ -531,29 +505,26 @@ class ConditionalRow(_SetDeleteRow):
         num_false_mutations = len(false_mutations)
         if num_true_mutations == 0 and num_false_mutations == 0:
             return
-        if (num_true_mutations > MAX_MUTATIONS or
-                num_false_mutations > MAX_MUTATIONS):
+        if num_true_mutations > MAX_MUTATIONS or num_false_mutations > MAX_MUTATIONS:
             raise ValueError(
-                'Exceed the maximum allowable mutations (%d). Had %s true '
-                'mutations and %d false mutations.' % (
-                    MAX_MUTATIONS, num_true_mutations, num_false_mutations))
+                "Exceed the maximum allowable mutations (%d). Had %s true "
+                "mutations and %d false mutations."
+                % (MAX_MUTATIONS, num_true_mutations, num_false_mutations)
+            )
 
-        request_pb = messages_v2_pb2.CheckAndMutateRowRequest(
+        data_client = self._table._instance._client.table_data_client
+        resp = data_client.check_and_mutate_row(
             table_name=self._table.name,
             row_key=self._row_key,
             predicate_filter=self._filter.to_pb(),
             true_mutations=true_mutations,
             false_mutations=false_mutations,
         )
-        # We expect a `.messages_v2_pb2.CheckAndMutateRowResponse`
-        client = self._table._instance._client
-        resp = client._data_stub.CheckAndMutateRow(request_pb)
         self.clear()
         return resp.predicate_matched
 
     # pylint: disable=arguments-differ
-    def set_cell(self, column_family_id, column, value, timestamp=None,
-                 state=True):
+    def set_cell(self, column_family_id, column, value, timestamp=None, state=True):
         """Sets a value in this row.
 
         The cell is determined by the ``row_key`` of this
@@ -589,8 +560,9 @@ class ConditionalRow(_SetDeleteRow):
         :param state: (Optional) The state that the mutation should be
                       applied in. Defaults to :data:`True`.
         """
-        self._set_cell(column_family_id, column, value, timestamp=timestamp,
-                       state=state)
+        self._set_cell(
+            column_family_id, column, value, timestamp=timestamp, state=state
+        )
 
     def delete(self, state=True):
         """Deletes this row from the table.
@@ -608,8 +580,7 @@ class ConditionalRow(_SetDeleteRow):
         """
         self._delete(state=state)
 
-    def delete_cell(self, column_family_id, column, time_range=None,
-                    state=True):
+    def delete_cell(self, column_family_id, column, time_range=None, state=True):
         """Deletes cell in this row.
 
         .. note::
@@ -636,11 +607,11 @@ class ConditionalRow(_SetDeleteRow):
         :param state: (Optional) The state that the mutation should be
                       applied in. Defaults to :data:`True`.
         """
-        self._delete_cells(column_family_id, [column], time_range=time_range,
-                           state=state)
+        self._delete_cells(
+            column_family_id, [column], time_range=time_range, state=state
+        )
 
-    def delete_cells(self, column_family_id, columns, time_range=None,
-                     state=True):
+    def delete_cells(self, column_family_id, columns, time_range=None, state=True):
         """Deletes cells in this row.
 
         .. note::
@@ -669,8 +640,10 @@ class ConditionalRow(_SetDeleteRow):
         :param state: (Optional) The state that the mutation should be
                       applied in. Defaults to :data:`True`.
         """
-        self._delete_cells(column_family_id, columns, time_range=time_range,
-                           state=state)
+        self._delete_cells(
+            column_family_id, columns, time_range=time_range, state=state
+        )
+
     # pylint: enable=arguments-differ
 
     def clear(self):
@@ -735,9 +708,8 @@ class AppendRow(Row):
         column = _to_bytes(column)
         value = _to_bytes(value)
         rule_pb = data_v2_pb2.ReadModifyWriteRule(
-            family_name=column_family_id,
-            column_qualifier=column,
-            append_value=value)
+            family_name=column_family_id, column_qualifier=column, append_value=value
+        )
         self._rule_pb_list.append(rule_pb)
 
     def increment_cell_value(self, column_family_id, column, int_value):
@@ -774,7 +746,8 @@ class AppendRow(Row):
         rule_pb = data_v2_pb2.ReadModifyWriteRule(
             family_name=column_family_id,
             column_qualifier=column,
-            increment_amount=int_value)
+            increment_amount=int_value,
+        )
         self._rule_pb_list.append(rule_pb)
 
     def commit(self):
@@ -825,16 +798,15 @@ class AppendRow(Row):
         if num_mutations == 0:
             return {}
         if num_mutations > MAX_MUTATIONS:
-            raise ValueError('%d total append mutations exceed the maximum '
-                             'allowable %d.' % (num_mutations, MAX_MUTATIONS))
-        request_pb = messages_v2_pb2.ReadModifyWriteRowRequest(
-            table_name=self._table.name,
-            row_key=self._row_key,
-            rules=self._rule_pb_list,
+            raise ValueError(
+                "%d total append mutations exceed the maximum "
+                "allowable %d." % (num_mutations, MAX_MUTATIONS)
+            )
+
+        data_client = self._table._instance._client.table_data_client
+        row_response = data_client.read_modify_write_row(
+            table_name=self._table.name, row_key=self._row_key, rules=self._rule_pb_list
         )
-        # We expect a `.data_v2_pb2.Row`
-        client = self._table._instance._client
-        row_response = client._data_stub.ReadModifyWriteRow(request_pb)
 
         # Reset modifications after commit-ing request.
         self.clear()
@@ -912,10 +884,7 @@ def _parse_family_pb(family_pb):
     for column in family_pb.columns:
         result[column.qualifier] = cells = []
         for cell in column.cells:
-            val_pair = (
-                cell.value,
-                _datetime_from_microseconds(cell.timestamp_micros),
-            )
+            val_pair = (cell.value, _datetime_from_microseconds(cell.timestamp_micros))
             cells.append(val_pair)
 
     return family_pb.name, result

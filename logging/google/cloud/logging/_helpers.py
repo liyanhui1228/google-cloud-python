@@ -16,14 +16,13 @@
 
 import requests
 
+from google.cloud.logging.entries import LogEntry
 from google.cloud.logging.entries import ProtobufEntry
 from google.cloud.logging.entries import StructEntry
 from google.cloud.logging.entries import TextEntry
 
-METADATA_URL = 'http://metadata/computeMetadata/v1/'
-METADATA_HEADERS = {
-    'Metadata-Flavor': 'Google'
-}
+METADATA_URL = "http://metadata/computeMetadata/v1/"
+METADATA_HEADERS = {"Metadata-Flavor": "Google"}
 
 
 def entry_from_resource(resource, client, loggers):
@@ -44,14 +43,16 @@ def entry_from_resource(resource, client, loggers):
     :rtype: :class:`~google.cloud.logging.entries._BaseEntry`
     :returns: The entry instance, constructed via the resource
     """
-    if 'textPayload' in resource:
+    if "textPayload" in resource:
         return TextEntry.from_api_repr(resource, client, loggers)
-    elif 'jsonPayload' in resource:
+
+    if "jsonPayload" in resource:
         return StructEntry.from_api_repr(resource, client, loggers)
-    elif 'protoPayload' in resource:
+
+    if "protoPayload" in resource:
         return ProtobufEntry.from_api_repr(resource, client, loggers)
 
-    raise ValueError('Cannot parse log entry resource.')
+    return LogEntry.from_api_repr(resource, client, loggers)
 
 
 def retrieve_metadata_server(metadata_key):

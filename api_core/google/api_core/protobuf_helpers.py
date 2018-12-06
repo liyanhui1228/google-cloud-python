@@ -15,11 +15,29 @@
 """Helpers for :mod:`protobuf`."""
 
 import collections
+try:
+    from collections import abc as collections_abc
+except ImportError:  # Python 2.7
+    import collections as collections_abc
+import copy
 import inspect
 
-from google.protobuf.message import Message
+from google.protobuf import field_mask_pb2
+from google.protobuf import message
+from google.protobuf import wrappers_pb2
 
 _SENTINEL = object()
+_WRAPPER_TYPES = (
+    wrappers_pb2.BoolValue,
+    wrappers_pb2.BytesValue,
+    wrappers_pb2.DoubleValue,
+    wrappers_pb2.FloatValue,
+    wrappers_pb2.Int32Value,
+    wrappers_pb2.Int64Value,
+    wrappers_pb2.StringValue,
+    wrappers_pb2.UInt32Value,
+    wrappers_pb2.UInt64Value,
+)
 
 
 def from_any_pb(pb_type, any_pb):
@@ -39,8 +57,10 @@ def from_any_pb(pb_type, any_pb):
     msg = pb_type()
     if not any_pb.Unpack(msg):
         raise TypeError(
-            'Could not convert {} to {}'.format(
-                any_pb.__class__.__name__, pb_type.__name__))
+            "Could not convert {} to {}".format(
+                any_pb.__class__.__name__, pb_type.__name__
+            )
+        )
 
     return msg
 
@@ -60,9 +80,11 @@ def check_oneof(**kwargs):
 
     not_nones = [val for val in kwargs.values() if val is not None]
     if len(not_nones) > 1:
-        raise ValueError('Only one of {fields} should be set.'.format(
-            fields=', '.join(sorted(kwargs.keys())),
-        ))
+        raise ValueError(
+            "Only one of {fields} should be set.".format(
+                fields=", ".join(sorted(kwargs.keys()))
+            )
+        )
 
 
 def get_messages(module):
@@ -73,18 +95,19 @@ def get_messages(module):
             module to find Message subclasses.
 
     Returns:
-        dict[str, Message]: A dictionary with the Message class names as
-            keys, and the Message subclasses themselves as values.
+        dict[str, google.protobuf.message.Message]: A dictionary with the
+            Message class names as keys, and the Message subclasses themselves
+            as values.
     """
     answer = collections.OrderedDict()
     for name in dir(module):
         candidate = getattr(module, name)
-        if inspect.isclass(candidate) and issubclass(candidate, Message):
+        if inspect.isclass(candidate) and issubclass(candidate, message.Message):
             answer[name] = candidate
     return answer
 
 
-def _resolve_subkeys(key, separator='.'):
+def _resolve_subkeys(key, separator="."):
     """Resolve a potentially nested key.
 
     If the key contains the ``separator`` (e.g. ``.``) then the key will be
@@ -143,14 +166,16 @@ def get(msg_or_dict, key, default=_SENTINEL):
 
     # Attempt to get the value from the two types of objects we know about.
     # If we get something else, complain.
-    if isinstance(msg_or_dict, Message):
+    if isinstance(msg_or_dict, message.Message):
         answer = getattr(msg_or_dict, key, default)
-    elif isinstance(msg_or_dict, collections.Mapping):
+    elif isinstance(msg_or_dict, collections_abc.Mapping):
         answer = msg_or_dict.get(key, default)
     else:
         raise TypeError(
-            'get() expected a dict or protobuf message, got {!r}.'.format(
-                type(msg_or_dict)))
+            "get() expected a dict or protobuf message, got {!r}.".format(
+                type(msg_or_dict)
+            )
+        )
 
     # If the object we got back is our sentinel, raise KeyError; this is
     # a "not found" case.
@@ -168,7 +193,7 @@ def _set_field_on_message(msg, key, value):
     """Set helper for protobuf Messages."""
     # Attempt to set the value on the types of objects we know how to deal
     # with.
-    if isinstance(value, (collections.MutableSequence, tuple)):
+    if isinstance(value, (collections_abc.MutableSequence, tuple)):
         # Clear the existing repeated protobuf message of any elements
         # currently inside it.
         while getattr(msg, key):
@@ -176,17 +201,17 @@ def _set_field_on_message(msg, key, value):
 
         # Write our new elements to the repeated field.
         for item in value:
-            if isinstance(item, collections.Mapping):
+            if isinstance(item, collections_abc.Mapping):
                 getattr(msg, key).add(**item)
             else:
                 # protobuf's RepeatedCompositeContainer doesn't support
                 # append.
                 getattr(msg, key).extend([item])
-    elif isinstance(value, collections.Mapping):
+    elif isinstance(value, collections_abc.Mapping):
         # Assign the dictionary values to the protobuf message.
         for item_key, item_value in value.items():
             set(getattr(msg, key), item_key, item_value)
-    elif isinstance(value, Message):
+    elif isinstance(value, message.Message):
         getattr(msg, key).CopyFrom(value)
     else:
         setattr(msg, key, value)
@@ -205,10 +230,12 @@ def set(msg_or_dict, key, value):
         TypeError: If ``msg_or_dict`` is not a Message or dictionary.
     """
     # Sanity check: Is our target object valid?
-    if not isinstance(msg_or_dict, (collections.MutableMapping, Message)):
+    if not isinstance(msg_or_dict, (collections_abc.MutableMapping, message.Message)):
         raise TypeError(
-            'set() expected a dict or protobuf message, got {!r}.'.format(
-                type(msg_or_dict)))
+            "set() expected a dict or protobuf message, got {!r}.".format(
+                type(msg_or_dict)
+            )
+        )
 
     # We may be setting a nested key. Resolve this.
     basekey, subkey = _resolve_subkeys(key)
@@ -216,12 +243,12 @@ def set(msg_or_dict, key, value):
     # If a subkey exists, then get that object and call this method
     # recursively against it using the subkey.
     if subkey is not None:
-        if isinstance(msg_or_dict, collections.MutableMapping):
+        if isinstance(msg_or_dict, collections_abc.MutableMapping):
             msg_or_dict.setdefault(basekey, {})
         set(get(msg_or_dict, basekey), subkey, value)
         return
 
-    if isinstance(msg_or_dict, collections.MutableMapping):
+    if isinstance(msg_or_dict, collections_abc.MutableMapping):
         msg_or_dict[key] = value
     else:
         _set_field_on_message(msg_or_dict, key, value)
@@ -247,3 +274,86 @@ def setdefault(msg_or_dict, key, value):
     """
     if not get(msg_or_dict, key, default=None):
         set(msg_or_dict, key, value)
+
+
+def field_mask(original, modified):
+    """Create a field mask by comparing two messages.
+
+    Args:
+        original (~google.protobuf.message.Message): the original message.
+            If set to None, this field will be interpretted as an empty
+            message.
+        modified (~google.protobuf.message.Message): the modified message.
+            If set to None, this field will be interpretted as an empty
+            message.
+
+    Returns:
+        google.protobuf.field_mask_pb2.FieldMask: field mask that contains
+        the list of field names that have different values between the two
+        messages. If the messages are equivalent, then the field mask is empty.
+
+    Raises:
+        ValueError: If the ``original`` or ``modified`` are not the same type.
+    """
+    if original is None and modified is None:
+        return field_mask_pb2.FieldMask()
+
+    if original is None and modified is not None:
+        original = copy.deepcopy(modified)
+        original.Clear()
+
+    if modified is None and original is not None:
+        modified = copy.deepcopy(original)
+        modified.Clear()
+
+    if type(original) != type(modified):
+        raise ValueError(
+            "expected that both original and modified should be of the "
+            'same type, received "{!r}" and "{!r}".'.format(
+                type(original), type(modified)
+            )
+        )
+
+    return field_mask_pb2.FieldMask(paths=_field_mask_helper(original, modified))
+
+
+def _field_mask_helper(original, modified, current=""):
+    answer = []
+
+    for name in original.DESCRIPTOR.fields_by_name:
+        field_path = _get_path(current, name)
+
+        original_val = getattr(original, name)
+        modified_val = getattr(modified, name)
+
+        if _is_message(original_val) or _is_message(modified_val):
+            if original_val != modified_val:
+                # Wrapper types do not need to include the .value part of the
+                # path.
+                if _is_wrapper(original_val) or _is_wrapper(modified_val):
+                    answer.append(field_path)
+                elif not modified_val.ListFields():
+                    answer.append(field_path)
+                else:
+                    answer.extend(
+                        _field_mask_helper(original_val, modified_val, field_path)
+                    )
+        else:
+            if original_val != modified_val:
+                answer.append(field_path)
+
+    return answer
+
+
+def _get_path(current, name):
+    if not current:
+        return name
+    return "%s.%s" % (current, name)
+
+
+def _is_message(value):
+    return isinstance(value, message.Message)
+
+
+def _is_wrapper(value):
+    return type(value) in _WRAPPER_TYPES

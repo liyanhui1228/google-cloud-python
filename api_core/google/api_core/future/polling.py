@@ -25,7 +25,17 @@ from google.api_core.future import base
 
 class _OperationNotComplete(Exception):
     """Private exception used for polling via retry."""
+
     pass
+
+
+RETRY_PREDICATE = retry.if_exception_type(
+    _OperationNotComplete,
+    exceptions.TooManyRequests,
+    exceptions.InternalServerError,
+    exceptions.BadGateway,
+)
+DEFAULT_RETRY = retry.Retry(predicate=RETRY_PREDICATE)
 
 
 class PollingFuture(base.Future):
@@ -36,9 +46,17 @@ class PollingFuture(base.Future):
 
     .. note: Privacy here is intended to prevent the final class from
     overexposing, not to prevent subclasses from accessing methods.
+
+    Args:
+        retry (google.api_core.retry.Retry): The retry configuration used
+            when polling. This can be used to control how often :meth:`done`
+            is polled. Regardless of the retry's ``deadline``, it will be
+            overridden by the ``timeout`` argument to :meth:`result`.
     """
-    def __init__(self):
+
+    def __init__(self, retry=DEFAULT_RETRY):
         super(PollingFuture, self).__init__()
+        self._retry = retry
         self._result = None
         self._exception = None
         self._result_set = False
@@ -77,16 +95,14 @@ class PollingFuture(base.Future):
         if self._result_set:
             return
 
-        retry_ = retry.Retry(
-            predicate=retry.if_exception_type(_OperationNotComplete),
-            deadline=timeout)
+        retry_ = self._retry.with_deadline(timeout)
 
         try:
             retry_(self._done_or_raise)()
         except exceptions.RetryError:
             raise concurrent.futures.TimeoutError(
-                'Operation did not complete within the designated '
-                'timeout.')
+                "Operation did not complete within the designated " "timeout."
+            )
 
     def result(self, timeout=None):
         """Get the result of the operation, blocking if necessary.
@@ -146,7 +162,8 @@ class PollingFuture(base.Future):
             # The polling thread will exit on its own as soon as the operation
             # is done.
             self._polling_thread = _helpers.start_daemon_thread(
-                target=self._blocking_poll)
+                target=self._blocking_poll
+            )
 
     def _invoke_callbacks(self, *args, **kwargs):
         """Invoke all done callbacks."""

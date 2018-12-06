@@ -4,6 +4,196 @@
 
 [1]: https://pypi.org/project/google-cloud-pubsub/#history
 
+## 0.39.0
+
+11-27-2018 13:32 PST
+
+### Implementation Changes
+- Pick up fixes to GAPIC generator. ([#6503](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6503))
+- Override client classmethod factories inherited from GAPIC. ([#6453](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6453))
+- Fix imports for hand-written client docstring examples. ([#6345](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6345))
+- Fix path for patch of 'bidi' elements. ([#6243](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6243))
+- Move bidi to api-core. ([#6211](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6211))
+- Re-generate library using pubsub/synth.py ([#6059](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6059))
+- Re-generate library using pubsub/synth.py ([#5978](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5978))
+
+### New Features
+- Add 'expiration_policy' to subscriber client. ([#6223](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6223))
+
+### Dependencies
+- Bump minimum 'api_core' version for all GAPIC libs to 1.4.1. ([#6391](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6391))
+- Update IAM version in dependencies. ([#6362](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6362))
+- Bump minimum 'api_core' version to '1.4.1'. ([#6134](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6134))
+
+### Documentation
+- Fix client_info bug, update docstrings. ([#6418](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6418))
+- Fix docstring reference to wrong future class. ([#6382](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6382))
+- Normalize use of support level badges. ([#6159](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6159))
+- Update subscriber example in README to current patterns. ([#6194](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6194))
+- Prep pubsub docs for repo split. ([#6001](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6001))
+
+### Internal / Testing Changes
+- Fix error from new flake8 version. ([#6346](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6346))
+- Use new Nox. ([#6175](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6175))
+
+## 0.38.0
+
+### Implementation Changes
+
+- Fix race condition in recv()'s usage of self.call. ([#5935](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5935))
+- Re-generate the underlying library from protos. ([#5953](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5953))
+- Change 'BatchSettings.max_bytes' default. ([#5899](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5899))
+- Fix race condition where pending Ack IDs can be modified by another thread. ([#5929](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5929))
+
+### Internal / Testing Changes
+
+- Nox: use inplace installs ([#5865](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5865))
+
+## 0.37.2
+
+### Implementation Changes
+
+- Fix classmethod wrapping (#5826)
+
+### Documentation
+
+- Fix Sphinx rendering for publisher client. (#5822)
+
+### Internal / Testing Changes
+
+- Re-generate library, removing obsolete synth modifications. (#5825)
+- Add test for testing invoking a wrapped class method on the class itself (#5828)
+
+## 0.37.1
+
+### Implementation Changes
+
+- Make get_initial_request more resilient to race conditions. (#5803)
+
+## 0.37.0
+
+### Implementation Changes
+
+- Make Publisher batch-related interfaces private (#5784)
+
+## 0.36.0
+
+### Implementation Changes
+- Pubsub: Make 'Message.publish_time' return datetime (#5633)
+- Ensure SPM methods check that 'self._consumer' is not None before use. (#5758)
+
+### New Features
+- PubSub: add geo-fencing support (#5769)
+- Add 'Message.ack_id' property. (#5693)
+
+## 0.35.4
+
+### Implementation Changes
+
+- Recover streams during the gRPC error callback. (#5446)
+- Use operational lock when checking for activity on streams. (#5445)
+
+## 0.35.3
+
+### Implementation Changes
+
+- Add additional error handling to unary RPCs (#5438)
+
+## 0.35.2
+
+### Implementation Changes
+- Add heartbeating to the streaming pull manager (#5413)
+- Fix retrying of bidirectional RPCs and closing the streaming pull manager (#5412)
+
+## 0.35.1
+
+### Implementation Changes
+- Catch errors when re-retying send() or recv() in addition to open() (#5402)
+
+## 0.35.0
+
+### Implementation Changes
+
+- Send requests during streaming pull over a separate unary RPC (#5377)
+- Initialize references to helper threads before starting them (#5374)
+- Make leaser exit more quickly (#5373)
+- Make re-open failures bubble to callbacks (#5372)
+- Avoid overwriting '__module__' of messages from shared modules. (#5364)
+- Normalize overflow handling for max count and bytes (#5343)
+
+### New Features
+
+- Restore the synchronous pull method (#5379)
+- Promote subscribe_experimental() to subscribe(), remove old subscriber implementation. (#5274)
+- Wire up scheduler argument for subscribe() (#5279)
+
+### Documentation
+
+- Add link to streaming pull behavior documentation (#5378)
+- Fix example in subscribe's documentation (#5375)
+
+### Internal / Testing Changes
+
+- Add Test runs for Python 3.7 and remove 3.4 (#5295)
+- Modify system tests to use prerelease versions of grpcio (#5304)
+
+## 0.34.0
+
+### Implementation Changes
+
+- Lower the flow control defaults. (#5248)
+
+### New Features
+
+- A new implementation of the subscriber has been added. This is available as `SubscriberClient.subscribe_experimental`. In the next release, this will be replace the current `subscribe` method. If you use this, please report your
+findings to us on GitHub. (#5189, #5201, #5210, #5229, #5230, #5237, #5256)
+
+### Dependencies
+
+- Remove psutil dependency. (#5248)
+
+## 0.33.1
+
+### Implementation changes
+
+- Surface publish RPC errors back to the publish futures (#5124)
+- Make the pausable response iterator aware of the RPC state to prevent deadlock (#5108)
+- Properly handle graceful stop in request generator (#5097)
+
+## 0.33.0
+
+### Implementation changes
+
+- Drop leased messages after flow_control.max_lease_duration has passed. (#5020)
+- Fix mantain leases to not modack messages it just dropped (#5045)
+- Avoid race condition in maintain_leases by copying leased_messages (#5035)
+- Retry subscription stream on InternalServerError, Unknown, and GatewayTimeout (#5021)
+- Use the rpc's status to determine when to exit the request generator thread (#5054)
+- Fix missing iter on request stream (#5078)
+- Nack messages when the subscriber callback errors (#5019)
+
+### Testing
+
+- pubsub nox.py cleanup (#5056)
+- Fix test that checks for retryable exceptions (#5034)
+
+## 0.32.1
+
+### Dependencies
+
+- Update dependency range for api-core to include v1.0.0 releases (#4944)
+
+### Testing and internal changes
+
+- Install local dependencies when running lint (#4936)
+- Re-enable lint for tests, remove usage of pylint (#4921)
+
+## 0.32.0
+
+### Implementation changes
+
+- Added support for streaming pull receipts. (#4878)
+
 ## 0.31.0
 
 ### New features

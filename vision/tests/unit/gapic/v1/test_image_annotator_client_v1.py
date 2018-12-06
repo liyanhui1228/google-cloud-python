@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#
 # Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,10 +15,14 @@
 # limitations under the License.
 """Unit tests."""
 
+import mock
 import pytest
+
+from google.rpc import status_pb2
 
 from google.cloud import vision_v1
 from google.cloud.vision_v1.proto import image_annotator_pb2
+from google.longrunning import operations_pb2
 
 
 class MultiCallableStub(object):
@@ -47,10 +53,7 @@ class ChannelStub(object):
         self.responses = responses
         self.requests = []
 
-    def unary_unary(self,
-                    method,
-                    request_serializer=None,
-                    response_deserializer=None):
+    def unary_unary(self, method, request_serializer=None, response_deserializer=None):
         return MultiCallableStub(method, self)
 
 
@@ -63,11 +66,15 @@ class TestImageAnnotatorClient(object):
         # Setup Expected Response
         expected_response = {}
         expected_response = image_annotator_pb2.BatchAnnotateImagesResponse(
-            **expected_response)
+            **expected_response
+        )
 
         # Mock the API response
         channel = ChannelStub(responses=[expected_response])
-        client = vision_v1.ImageAnnotatorClient(channel=channel)
+        patch = mock.patch("google.api_core.grpc_helpers.create_channel")
+        with patch as create_channel:
+            create_channel.return_value = channel
+            client = vision_v1.ImageAnnotatorClient()
 
         # Setup Request
         requests = []
@@ -77,17 +84,75 @@ class TestImageAnnotatorClient(object):
 
         assert len(channel.requests) == 1
         expected_request = image_annotator_pb2.BatchAnnotateImagesRequest(
-            requests=requests)
+            requests=requests
+        )
         actual_request = channel.requests[0][1]
         assert expected_request == actual_request
 
     def test_batch_annotate_images_exception(self):
         # Mock the API response
         channel = ChannelStub(responses=[CustomException()])
-        client = vision_v1.ImageAnnotatorClient(channel=channel)
+        patch = mock.patch("google.api_core.grpc_helpers.create_channel")
+        with patch as create_channel:
+            create_channel.return_value = channel
+            client = vision_v1.ImageAnnotatorClient()
 
         # Setup request
         requests = []
 
         with pytest.raises(CustomException):
             client.batch_annotate_images(requests)
+
+    def test_async_batch_annotate_files(self):
+        # Setup Expected Response
+        expected_response = {}
+        expected_response = image_annotator_pb2.AsyncBatchAnnotateFilesResponse(
+            **expected_response
+        )
+        operation = operations_pb2.Operation(
+            name="operations/test_async_batch_annotate_files", done=True
+        )
+        operation.response.Pack(expected_response)
+
+        # Mock the API response
+        channel = ChannelStub(responses=[operation])
+        patch = mock.patch("google.api_core.grpc_helpers.create_channel")
+        with patch as create_channel:
+            create_channel.return_value = channel
+            client = vision_v1.ImageAnnotatorClient()
+
+        # Setup Request
+        requests = []
+
+        response = client.async_batch_annotate_files(requests)
+        result = response.result()
+        assert expected_response == result
+
+        assert len(channel.requests) == 1
+        expected_request = image_annotator_pb2.AsyncBatchAnnotateFilesRequest(
+            requests=requests
+        )
+        actual_request = channel.requests[0][1]
+        assert expected_request == actual_request
+
+    def test_async_batch_annotate_files_exception(self):
+        # Setup Response
+        error = status_pb2.Status()
+        operation = operations_pb2.Operation(
+            name="operations/test_async_batch_annotate_files_exception", done=True
+        )
+        operation.error.CopyFrom(error)
+
+        # Mock the API response
+        channel = ChannelStub(responses=[operation])
+        patch = mock.patch("google.api_core.grpc_helpers.create_channel")
+        with patch as create_channel:
+            create_channel.return_value = channel
+            client = vision_v1.ImageAnnotatorClient()
+
+        # Setup Request
+        requests = []
+
+        response = client.async_batch_annotate_files(requests)
+        exception = response.exception()
+        assert exception.errors[0] == error

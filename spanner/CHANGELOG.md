@@ -4,6 +4,117 @@
 
 [1]: https://pypi.org/project/google-cloud-spanner/#history
 
+## 1.6.1
+
+11-09-2018 14:49 PST
+
+### Implementation Changes
+- Fix client_info bug, update docstrings. ([#6420](https://github.com/googleapis/google-cloud-python/pull/6420))
+
+### Documentation
+- Update README service links in quickstart guides. ([#6322](https://github.com/googleapis/google-cloud-python/pull/6322))
+- Normalize use of support level badges ([#6159](https://github.com/googleapis/google-cloud-python/pull/6159))
+- Fix typo in spanner usage documentation ([#6209](https://github.com/googleapis/google-cloud-python/pull/6209))
+
+### Internal / Testing Changes
+- Rationalize 'all_types' round-trip systest ([#6379](https://github.com/googleapis/google-cloud-python/pull/6379))
+- Bump minimum 'api_core' version for all GAPIC libs to 1.4.1. ([#6391](https://github.com/googleapis/google-cloud-python/pull/6391))
+- Add systest for returning empty array struct ([#4449](https://github.com/googleapis/google-cloud-python/pull/4449))
+- Add systests not needing tables ([#6308](https://github.com/googleapis/google-cloud-python/pull/6308))
+- Use new Nox ([#6175](https://github.com/googleapis/google-cloud-python/pull/6175))
+
+## 1.6.0
+
+10-08-2018 08:25 PDT
+
+### New Features
+- Add support for DML/PDML. ([#6151](https://github.com/googleapis/google-cloud-python/pull/6151))
+
+### Implementation Changes
+- Add 'synth.py' and regen GAPIC code. ([#6040](https://github.com/googleapis/google-cloud-python/pull/6040))
+
+### Documentation
+- Remove invalid examples of `database.transaction()`. ([#6032](https://github.com/googleapis/google-cloud-python/pull/6032))
+- Redirect renamed `usage.html`/`client.html` -> `index.html`. ([#5996](https://github.com/googleapis/google-cloud-python/pull/5996))
+- Fix leakage of sections into sidebar menu. ([#5986](https://github.com/googleapis/google-cloud-python/pull/5986))
+- Prepare documentation for repo split. ([#5938](https://github.com/googleapis/google-cloud-python/pull/5938))
+
+### Internal / Testing Changes
+- Remove extra `grpc_gcp` system tests. ([#6049](https://github.com/googleapis/google-cloud-python/pull/6049))
+
+## 1.5.0
+
+### New Features
+
+- Add support for session / pool labels ([#5734](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5734))
+- Add support for gRPC connection management ([#5553](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5553))
+
+### Dependencies
+
+- Add `grpcio-gcp` dependency for Cloud Spanner ([#5904](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5904))
+
+### Internal / Testing Changes
+
+- Don't hardcode endpoint URL in grpc_gcp unit tests. ([#5893](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5893))
+- Run `grpc_gcp` unit tests only with Python 2.7 / 3.6. ([#5871](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5871))
+- Nox: use inplace installs ([#5865](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5865))
+- Benchmarks: print() is a function in Python 3 ([#5862](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5862))
+- Retry `test_transaction_read_and_insert_then_rollback` when aborted. ([#5737](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5737))
+- Skip the flaky `test_update_database_ddl` systest. ([#5704](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5704))
+
+## 1.4.0
+
+### Implementation Changes
+- Ensure that initial resume token is bytes, not text. (#5450)
+- Prevent process_read_batch from mutating params (#5416)
+- Avoid overwriting '__module__' of messages from shared modules. (#5364)
+
+### New Features
+- Add support for Python 3.7 (#5288)
+- Add support for Spanner struct params. (#5463)
+
+### Internal / Testing Changes
+- Modify system tests to use prerelease versions of grpcio (#5304)
+
+## 1.3.0
+
+### Interface additions
+
+- Added `spanner_v1.COMMIT_TIMESTAMP`. (#5102)
+
+## 1.2.0
+
+### New features
+
+- Added batch query support (#4938)
+
+### Implementation changes
+
+- Removed custom timestamp class in favor of the one in google-api-core. (#4980)
+
+### Dependencies
+
+- Update minimum version for google-api-core to 1.1.0 (#5030)
+
+### Documentation
+
+- Update package metadata release status to 'Stable' (#5031)
+
+## 1.1.0
+
+### Dependencies
+
+- The minimum version for `google-api-core` has been updated to version 1.0.0. This may cause some incompatibility with older google-cloud libraries, you will need to update those libraries if you have a dependency conflict. (#4944, #4946)
+
+### Testing and internal changes
+
+- Fix load_keys() in YCSB-like benchmark for cloud spanner. (#4919)
+- Install local dependencies when running lint (#4936)
+- Re-enable lint for tests, remove usage of pylint (#4921)
+- Normalize all setup.py files (#4909)
+- Fix system test util to populate streaming (#4888)
+- Retry conflict errors in system test (#4850)
+
 ## 1.0.0
 
 ### Breaking Changes

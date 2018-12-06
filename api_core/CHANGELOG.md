@@ -4,6 +4,122 @@
 
 [1]: https://pypi.org/project/google-api-core/#history
 
+## 1.6.0
+
+11-30-2018 12:45 PST
+
+
+### Implementation Changes
+- Import stdlib ABCs from 'collections.abc' rather than 'collections'. ([#6451](https://github.com/googleapis/google-cloud-python/pull/6451))
+
+### New Features
+- Move google.cloud.iam (core) to google.api_core.iam ([#6740](https://github.com/googleapis/google-cloud-python/pull/6740))
+- Add bidi support to api_core. ([#6191](https://github.com/googleapis/google-cloud-python/pull/6191))
+
+### Documentation
+- Fix typo ([#6532](https://github.com/googleapis/google-cloud-python/pull/6532))
+
+### Internal / Testing Changes
+- blacken api_core and core ([#6668](https://github.com/googleapis/google-cloud-python/pull/6668))
+
+## 1.5.2
+
+11-09-2018 14:22 PST
+
+
+### Implementation Changes
+- Retry transient errors in 'PollingFuture.result'. ([#6305](https://github.com/googleapis/google-cloud-python/pull/6305))
+
+### Dependencies
+- Remove hyphen from named extra in api_core. ([#6468](https://github.com/googleapis/google-cloud-python/pull/6468))
+- Bump minimum 'api_core' version for all GAPIC libs to 1.4.1. ([#6391](https://github.com/googleapis/google-cloud-python/pull/6391))
+- Avoid broken 'google-common-apis 1.5.4' release. ([#6355](https://github.com/googleapis/google-cloud-python/pull/6355))
+
+## 1.5.1
+
+10-29-2018 13:29 PDT
+
+### Implementation Changes
+- Don't URL-encode slashes in gRPC request headers. ([#6310](https://github.com/googleapis/google-cloud-python/pull/6310))
+
+### Internal / Testing Changes
+- Back out changes from [#6267](https://github.com/googleapis/google-cloud-python/pull/6267) / `api_core-1.6.0a1` release. ([#6328](https://github.com/googleapis/google-cloud-python/pull/6328))
+
+## 1.5.0
+
+### New Features
+- Add bidi, Bidirection Streaming, to api-core ([#6211](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6211))
+
+### Internal / Testing Changes
+- Use new Nox ([#6175](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6175))
+
+## 1.4.1
+
+### Dependencies
+- Pin minimum protobuf dependency to 3.4.0. ([#6132](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6132))
+
+### Internal / Testing Changes
+- Add type-checking via pytype to api_core. ([#6116](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/6116))
+
+## 1.4.0
+
+### Dependencies
+
+- Add support for gRPC connection management (available when using optional grpc_gcp dependency) ([#5553](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5553)) ([#5904](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5904))
+- Update classifiers to drop Python 3.4 and add Python 3.7 ([#5702](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5702))
+
+## 1.3.0
+
+### New Features
+
+- Add protobuf_helpers.field_mask to calculate a field mask from two messages (#5320)
+
+## 1.2.1
+
+### Implementation Changes
+- Make client_info work without gRPC installed. (#5075)
+- Rename `x-goog-header-params` to `x-goog-request-params` (#5495)
+
+## 1.2.0
+
+### Implementation Changes
+- Add close method to grpc Channel (#5333)
+
+### Internal / Testing Changes
+- Fix tests after grpcio update (#5333)
+- Add Test runs for Python 3.7 and remove 3.4 (#5295)
+
+## 1.1.2
+
+### Packaging
+- Update setuptools before packaging (#5265)
+
+## 1.1.1
+
+### Internal / Testing Changes
+- Use `install_requires` for platform dependencies instead of `extras_require` (#4991)
+- Update trove classifer to '5 - Production/Stable'
+
+## 1.1.0
+
+### Interface additions
+
+- Add `datetime_helpers.DatetimeWithNanoSeconds` (#4979)
+
+### Implementation changes
+
+- Use a class to wrap grpc streaming errors instead of monkey-patching (#4995)
+
+## 1.0.0
+
+This is the stable v1.0.0 release of google-api-core for Python. Releases after
+this will not contain breaking changes.
+
+### Interface changes and additions
+
+- Made `api_core.page_iterator.PageIterator.item_to_value` public
+- Added ability to specify retry for `Operation` and `polling.Future`. (#4922)
+
 ## 0.1.4
 
 ### New Features

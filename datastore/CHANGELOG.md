@@ -4,6 +4,62 @@
 
 [1]: https://pypi.org/project/google-cloud-datastore/#history
 
+## 1.7.1
+
+10-29-2018 10:38 PDT
+
+### Implementation Changes
+- Propagate empty arrays in entity values. ([#6285](https://github.com/googleapis/google-cloud-python/pull/6285))
+- Expose 'Client.base_url' property to allow alternate endpoints. ([#5821](https://github.com/googleapis/google-cloud-python/pull/5821))
+
+### Documentation
+- Normalize use of support level badges ([#6159](https://github.com/googleapis/google-cloud-python/pull/6159))
+- Redirect renamed 'usage.html'/'client.html' -> 'index.html'. ([#5996](https://github.com/googleapis/google-cloud-python/pull/5996))
+- Replace links to '/stable/' with '/latest/'. ([#5901](https://github.com/googleapis/google-cloud-python/pull/5901))
+
+### Internal / Testing Changes
+- Use new Nox ([#6175](https://github.com/googleapis/google-cloud-python/pull/6175))
+- Add 'synth.py'. ([#6078](https://github.com/googleapis/google-cloud-python/pull/6078))
+- Prep datastore docs for repo split. ([#5919](https://github.com/googleapis/google-cloud-python/pull/5919))
+- Use inplace installs under `nox` ([#5865](https://github.com/googleapis/google-cloud-python/pull/5865))
+
+## 1.7.0
+
+### Implementation Changes
+
+- Do not pass 'offset' once the query iterator has a cursor (#5503)
+- Add test runs for Python 3.7 and remove run for 3.4 (#5295)
+
+### Documentation
+
+- minor fix to datastore example (#5452)
+- Add example showing explicit unicode for text values in entities. (#5263)
+
+### Internal / Testing Changes
+
+- Modify system tests to use prerelease versions of grpcio (#5304)
+- Avoid overwriting '__module__' of messages from shared modules. (#5364)
+- Attempt again to reproduce #4264. (#5403)
+- Fix bad trove classifier
+
+## 1.6.0
+
+### Implementation changes
+
+- Don't check `exclude_from_indexes` for empty lists. (#4915)
+
+### Dependencies
+
+- The minimum version for `google-api-core` has been updated to version 1.0.0. This may cause some incompatibility with older google-cloud libraries, you will need to update those libraries if you have a dependency conflict. (#4944, #4946)
+
+### Testing and internal changes
+
+- Install local dependencies when running lint (#4936)
+- Re-enable lint for tests, remove usage of pylint (#4921)
+- Normalize all setup.py files (#4909)
+- Exercise datastore query result paging (#4905)
+- Pass `*session.posargs` through on command line for system tests. (#4904)
+
 ## 1.5.0
 
 ### Interface additions

@@ -1,4 +1,6 @@
-# Copyright 2017 Google LLC
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +23,9 @@ from google.cloud.dataproc_v1.proto import clusters_pb2
 
 class TestSystemClusterController(object):
     def test_list_clusters(self):
-        project_id = os.environ['PROJECT_ID']
+        project_id = os.environ["PROJECT_ID"]
 
         client = dataproc_v1.ClusterControllerClient()
         project_id_2 = project_id
-        region = 'global'
+        region = "global"
         response = client.list_clusters(project_id_2, region)

@@ -36,15 +36,18 @@
 """
 
 import base64
+import datetime
 
-from google.cloud._helpers import _rfc3339_to_datetime
+import pytz
+
+from google.api_core import datetime_helpers
 from google.cloud.exceptions import NotFound
 from google.cloud.runtimeconfig._helpers import variable_name_from_full_name
 
 
-STATE_UNSPECIFIED = 'VARIABLE_STATE_UNSPECIFIED'
-STATE_UPDATED = 'UPDATED'
-STATE_DELETED = 'DELETED'
+STATE_UNSPECIFIED = "VARIABLE_STATE_UNSPECIFIED"
+STATE_UPDATED = "UPDATED"
+STATE_DELETED = "DELETED"
 
 
 class Variable(object):
@@ -79,7 +82,7 @@ class Variable(object):
         :rtype: :class:`google.cloud.runtimeconfig.variable.Variable`
         :returns: Variable parsed from ``resource``.
         """
-        name = variable_name_from_full_name(resource.get('name'))
+        name = variable_name_from_full_name(resource.get("name"))
         variable = cls(name=name, config=config)
         variable._set_properties(resource=resource)
         return variable
@@ -97,8 +100,8 @@ class Variable(object):
         :raises: :class:`ValueError` if the variable is missing a name.
         """
         if not self.name:
-            raise ValueError('Missing variable name.')
-        return '%s/variables/%s' % (self.config.full_name, self.name)
+            raise ValueError("Missing variable name.")
+        return "%s/variables/%s" % (self.config.full_name, self.name)
 
     @property
     def path(self):
@@ -107,7 +110,7 @@ class Variable(object):
         :rtype: str
         :returns: The URL path based on config and variable names.
         """
-        return '/%s' % (self.full_name,)
+        return "/%s" % (self.full_name,)
 
     @property
     def client(self):
@@ -125,7 +128,7 @@ class Variable(object):
         :returns: The value of the variable or ``None`` if the property
                   is not set locally.
         """
-        value = self._properties.get('value')
+        value = self._properties.get("value")
         if value is not None:
             value = base64.b64decode(value)
         return value
@@ -142,7 +145,7 @@ class Variable(object):
             If set, one of "UPDATED", "DELETED", or defaults to
             "VARIABLE_STATE_UNSPECIFIED".
         """
-        return self._properties.get('state', STATE_UNSPECIFIED)
+        return self._properties.get("state", STATE_UNSPECIFIED)
 
     @property
     def update_time(self):
@@ -151,13 +154,27 @@ class Variable(object):
         See
         https://cloud.google.com/deployment-manager/runtime-configurator/reference/rest/v1beta1/projects.configs.variables
 
-        :rtype: :class:`datetime.datetime` or ``NoneType``
-        :returns: Datetime object parsed from RFC3339 valid timestamp, or
-                  ``None`` if the property is not set locally.
+        Returns:
+            :class:`~api_core.datetime_helpers.DatetimeWithNanoseconds`,
+            :class:`datetime.datetime` or ``NoneType``:
+            Datetime object parsed from RFC3339 valid timestamp, or
+            ``None`` if the property is not set locally.
+
+        Raises:
+            ValueError: if value is not a valid RFC3339 timestamp
         """
-        value = self._properties.get('updateTime')
+        value = self._properties.get("updateTime")
         if value is not None:
-            value = _rfc3339_to_datetime(value)
+            try:
+                value = datetime.datetime.strptime(
+                    value, datetime_helpers._RFC3339_MICROS
+                )
+            except ValueError:
+                DatetimeNS = datetime_helpers.DatetimeWithNanoseconds
+                value = DatetimeNS.from_rfc3339(value)
+            naive = value.tzinfo is None or value.tzinfo.utcoffset(value) is None
+            if naive:
+                value = pytz.utc.localize(value)
         return value
 
     def _require_client(self, client):
@@ -183,8 +200,8 @@ class Variable(object):
         """
         self._properties.clear()
         cleaned = resource.copy()
-        if 'name' in cleaned:
-            self.name = variable_name_from_full_name(cleaned.pop('name'))
+        if "name" in cleaned:
+            self.name = variable_name_from_full_name(cleaned.pop("name"))
         self._properties.update(cleaned)
 
     def exists(self, client=None):
@@ -205,9 +222,10 @@ class Variable(object):
         try:
             # We only need the status code (200 or not) so we seek to
             # minimize the returned payload.
-            query_params = {'fields': 'name'}
-            client._connection.api_request(method='GET', path=self.path,
-                                           query_params=query_params)
+            query_params = {"fields": "name"}
+            client._connection.api_request(
+                method="GET", path=self.path, query_params=query_params
+            )
             return True
         except NotFound:
             return False
@@ -229,5 +247,5 @@ class Variable(object):
 
         # We assume the variable exists. If it doesn't it will raise a NotFound
         # exception.
-        resp = client._connection.api_request(method='GET', path=self.path)
+        resp = client._connection.api_request(method="GET", path=self.path)
         self._set_properties(resource=resp)

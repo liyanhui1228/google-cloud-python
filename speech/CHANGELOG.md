@@ -4,6 +4,56 @@
 
 [1]: https://pypi.org/project/google-cloud-speech/#history
 
+## 0.36.0
+
+### New Features
+
+- Re-generate the library to pick up changes and new features in the underlying API. ([#5915](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5915))
+
+### Documentation
+
+- Fix broken links to description of 'Beta' ([#5917](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5917))
+- Replace links to '/stable/' with '/latest/'. ([#5901](https://github.com/GoogleCloudPlatform/google-cloud-python/pull/5901))
+
+## 0.35.0
+
+### Implementation Changes
+
+- Re-generated the library to pick up new API features. (#5577)
+
+### Internal / Testing Changes
+
+- Add Test runs for Python 3.7 and remove 3.4 (#5295)
+- Avoid overwriting '__module__' of messages from shared modules. (#5364)
+- Modify system tests to use prerelease versions of grpcio (#5304)
+
+## 0.34.0
+
+### Implementation Changes
+- Regenerate GAPIC to account for the removal of GoogleDataCollectionConfig and google_data_collection_opt_in  (#5235)
+
+## 0.33.0
+
+### New Features
+
+- Add Audio Logging and Recognition Metadata. (#5123)
+
+### Internal / Testing Changes
+
+- Fix bad trove classifier
+
+## 0.32.1
+
+### Dependencies
+
+- Update dependency range for api-core to include v1.0.0 releases (#4944)
+
+### Testing and internal changes
+
+- Install local dependencies when running lint (#4936)
+- Re-enable lint for tests, remove usage of pylint (#4921)
+- Normalize all setup.py files (#4909)
+
 ## 0.31.1
 
 ### Bugfixes

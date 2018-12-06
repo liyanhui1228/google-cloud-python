@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#
 # Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,32 +15,33 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
+import enum
 
-class TimedCountAlignment(object):
+
+class TimedCountAlignment(enum.IntEnum):
     """
     Specifies how the time periods of error group counts are aligned.
 
     Attributes:
       ERROR_COUNT_ALIGNMENT_UNSPECIFIED (int): No alignment specified.
-      ALIGNMENT_EQUAL_ROUNDED (int): The time periods shall be consecutive, have width equal to the
-      requested duration, and be aligned at the ``alignment_time`` provided in
-      the request.
-      The ``alignment_time`` does not have to be inside the query period but
-      even if it is outside, only time periods are returned which overlap
-      with the query period.
-      A rounded alignment will typically result in a
-      different size of the first or the last time period.
+      ALIGNMENT_EQUAL_ROUNDED (int): The time periods shall be consecutive, have width equal to the requested
+      duration, and be aligned at the ``alignment_time`` provided in the
+      request. The ``alignment_time`` does not have to be inside the query
+      period but even if it is outside, only time periods are returned which
+      overlap with the query period. A rounded alignment will typically result
+      in a different size of the first or the last time period.
       ALIGNMENT_EQUAL_AT_END (int): The time periods shall be consecutive, have width equal to the
       requested duration, and be aligned at the end of the requested time
       period. This can result in a different size of the
       first time period.
     """
+
     ERROR_COUNT_ALIGNMENT_UNSPECIFIED = 0
     ALIGNMENT_EQUAL_ROUNDED = 1
     ALIGNMENT_EQUAL_AT_END = 2
 
 
-class ErrorGroupOrder(object):
+class ErrorGroupOrder(enum.IntEnum):
     """
     A sorting order of error groups.
 
@@ -50,6 +53,7 @@ class ErrorGroupOrder(object):
       CREATED_DESC (int): Timestamp when the group was created in descending order.
       AFFECTED_USERS_DESC (int): Number of affected users in the given time window in descending order.
     """
+
     GROUP_ORDER_UNSPECIFIED = 0
     COUNT_DESC = 1
     LAST_SEEN_DESC = 2
@@ -58,7 +62,7 @@ class ErrorGroupOrder(object):
 
 
 class QueryTimeRange(object):
-    class Period(object):
+    class Period(enum.IntEnum):
         """
         The supported time ranges.
 
@@ -75,6 +79,7 @@ class QueryTimeRange(object):
           PERIOD_30_DAYS (int): Retrieve data for the last 30 days.
           Recommended minimum timed count duration: 1 day.
         """
+
         PERIOD_UNSPECIFIED = 0
         PERIOD_1_HOUR = 1
         PERIOD_6_HOURS = 2

@@ -16,10 +16,8 @@
 
 
 from google.cloud.firestore_v1beta1 import __version__
-from google.cloud.firestore_v1beta1 import AdminClient
 from google.cloud.firestore_v1beta1 import Client
 from google.cloud.firestore_v1beta1 import CollectionReference
-from google.cloud.firestore_v1beta1 import CreateIfMissingOption
 from google.cloud.firestore_v1beta1 import DELETE_FIELD
 from google.cloud.firestore_v1beta1 import DocumentReference
 from google.cloud.firestore_v1beta1 import DocumentSnapshot
@@ -33,29 +31,29 @@ from google.cloud.firestore_v1beta1 import SERVER_TIMESTAMP
 from google.cloud.firestore_v1beta1 import Transaction
 from google.cloud.firestore_v1beta1 import transactional
 from google.cloud.firestore_v1beta1 import types
+from google.cloud.firestore_v1beta1 import Watch
 from google.cloud.firestore_v1beta1 import WriteBatch
 from google.cloud.firestore_v1beta1 import WriteOption
 
 
 __all__ = [
-    '__version__',
-    'AdminClient',
-    'Client',
-    'CollectionReference',
-    'CreateIfMissingOption',
-    'DELETE_FIELD',
-    'DocumentReference',
-    'DocumentSnapshot',
-    'enums',
-    'ExistsOption',
-    'GeoPoint',
-    'LastUpdateOption',
-    'Query',
-    'ReadAfterWriteError',
-    'SERVER_TIMESTAMP',
-    'Transaction',
-    'transactional',
-    'types',
-    'WriteBatch',
-    'WriteOption',
+    "__version__",
+    "Client",
+    "CollectionReference",
+    "DELETE_FIELD",
+    "DocumentReference",
+    "DocumentSnapshot",
+    "enums",
+    "ExistsOption",
+    "GeoPoint",
+    "LastUpdateOption",
+    "Query",
+    "ReadAfterWriteError",
+    "SERVER_TIMESTAMP",
+    "Transaction",
+    "transactional",
+    "types",
+    "Watch",
+    "WriteBatch",
+    "WriteOption",
 ]

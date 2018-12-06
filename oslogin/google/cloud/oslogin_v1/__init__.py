@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#
 # Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +24,4 @@ class OsLoginServiceClient(os_login_service_client.OsLoginServiceClient):
     __doc__ = os_login_service_client.OsLoginServiceClient.__doc__
 
 
-__all__ = (
-    'types',
-    'OsLoginServiceClient',
-)
+__all__ = ("types", "OsLoginServiceClient")

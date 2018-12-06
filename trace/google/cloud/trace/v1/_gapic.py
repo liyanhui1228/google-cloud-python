@@ -14,10 +14,15 @@
 
 """Wrapper for interacting with the Stackdriver Trace API."""
 
+from google.api_core.gapic_v1 import client_info
+from google.cloud.trace import __version__
 from google.cloud.trace_v1.gapic import trace_service_client
 from google.cloud.trace_v1.proto import trace_pb2
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.json_format import ParseDict
+
+
+_CLIENT_INFO = client_info.ClientInfo(client_library_version=__version__)
 
 
 class _TraceAPI(object):
@@ -34,6 +39,7 @@ class _TraceAPI(object):
         client (~google.cloud.trace.client.Client): The client that owns this
             API object.
     """
+
     def __init__(self, gapic_api, client):
         self._gapic_api = gapic_api
         self.client = client
@@ -67,15 +73,16 @@ class _TraceAPI(object):
         return trace_mapping
 
     def list_traces(
-            self,
-            project_id,
-            view=None,
-            page_size=None,
-            start_time=None,
-            end_time=None,
-            filter_=None,
-            order_by=None,
-            page_token=None):
+        self,
+        project_id,
+        view=None,
+        page_size=None,
+        start_time=None,
+        end_time=None,
+        filter_=None,
+        order_by=None,
+        page_token=None,
+    ):
         """
         Returns of a list of traces that match the filter conditions.
 
@@ -119,8 +126,9 @@ class _TraceAPI(object):
             start_time=start_time,
             end_time=end_time,
             filter_=filter_,
-            order_by=order_by)
-        page_iter._item_to_value = _item_to_mapping
+            order_by=order_by,
+        )
+        page_iter.item_to_value = _item_to_mapping
         page_iter.next_page_token = page_token
         return page_iter
 
@@ -169,7 +177,9 @@ def make_trace_api(client):
         A :class:`~google.cloud.trace._gapic._TraceAPI` instance with the
         proper configurations.
     """
-    generated = trace_service_client.TraceServiceClient()
+    generated = trace_service_client.TraceServiceClient(
+        credentials=client._credentials, client_info=_CLIENT_INFO
+    )
     return _TraceAPI(generated, client)
 
 

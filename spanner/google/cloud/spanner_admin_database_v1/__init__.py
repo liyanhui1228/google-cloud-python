@@ -1,4 +1,6 @@
-# Copyright 2017 Google LLC
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,8 +26,4 @@ class DatabaseAdminClient(database_admin_client.DatabaseAdminClient):
     enums = enums
 
 
-__all__ = (
-    'enums',
-    'types',
-    'DatabaseAdminClient',
-)
+__all__ = ("enums", "types", "DatabaseAdminClient")

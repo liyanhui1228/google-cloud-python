@@ -1,10 +1,12 @@
-# Copyright 2017, Google LLC All rights reserved.
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,23 +15,26 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
+import enum
 
-class NullValue(object):
+
+class NullValue(enum.IntEnum):
     """
-    ``NullValue`` is a singleton enumeration to represent the null value for the
-    ``Value`` type union.
+    ``NullValue`` is a singleton enumeration to represent the null value for
+    the ``Value`` type union.
 
-     The JSON representation for ``NullValue`` is JSON ``null``.
+    The JSON representation for ``NullValue`` is JSON ``null``.
 
     Attributes:
       NULL_VALUE (int): Null value.
     """
+
     NULL_VALUE = 0
 
 
-class TransferType(object):
+class TransferType(enum.IntEnum):
     """
-    Represents data transfer type.
+    DEPRECATED. Represents data transfer type.
 
     Attributes:
       TRANSFER_TYPE_UNSPECIFIED (int): Invalid or Unknown transfer type placeholder.
@@ -37,18 +42,18 @@ class TransferType(object):
       STREAMING (int): Streaming data transfer. Streaming data source currently doesn't
       support multiple transfer configs per project.
     """
+
     TRANSFER_TYPE_UNSPECIFIED = 0
     BATCH = 1
     STREAMING = 2
 
 
-class TransferState(object):
+class TransferState(enum.IntEnum):
     """
     Represents data transfer run state.
 
     Attributes:
       TRANSFER_STATE_UNSPECIFIED (int): State placeholder.
-      INACTIVE (int): Data transfer is inactive.
       PENDING (int): Data transfer is scheduled and is waiting to be picked up by
       data transfer backend.
       RUNNING (int): Data transfer is in progress.
@@ -56,8 +61,8 @@ class TransferState(object):
       FAILED (int): Data transfer failed.
       CANCELLED (int): Data transfer is cancelled.
     """
+
     TRANSFER_STATE_UNSPECIFIED = 0
-    INACTIVE = 1
     PENDING = 2
     RUNNING = 3
     SUCCEEDED = 4
@@ -66,7 +71,7 @@ class TransferState(object):
 
 
 class TransferMessage(object):
-    class MessageSeverity(object):
+    class MessageSeverity(enum.IntEnum):
         """
         Represents data transfer user facing message severity.
 
@@ -76,6 +81,7 @@ class TransferMessage(object):
           WARNING (int): Warning message.
           ERROR (int): Error message.
         """
+
         MESSAGE_SEVERITY_UNSPECIFIED = 0
         INFO = 1
         WARNING = 2
@@ -83,7 +89,7 @@ class TransferMessage(object):
 
 
 class DataSourceParameter(object):
-    class Type(object):
+    class Type(enum.IntEnum):
         """
         Parameter type.
 
@@ -97,6 +103,7 @@ class DataSourceParameter(object):
           RECORD (int): Record parameter.
           PLUS_PAGE (int): Page ID for a Google+ Page.
         """
+
         TYPE_UNSPECIFIED = 0
         STRING = 1
         INTEGER = 2
@@ -107,7 +114,7 @@ class DataSourceParameter(object):
 
 
 class DataSource(object):
-    class AuthorizationType(object):
+    class AuthorizationType(enum.IntEnum):
         """
         The type of authorization needed for this data source.
 
@@ -118,11 +125,12 @@ class DataSource(object):
           GOOGLE_PLUS_AUTHORIZATION_CODE (int): Return an authorization code for a given Google+ page that can then be
           exchanged for a refresh token on the backend.
         """
+
         AUTHORIZATION_TYPE_UNSPECIFIED = 0
         AUTHORIZATION_CODE = 1
         GOOGLE_PLUS_AUTHORIZATION_CODE = 2
 
-    class DataRefreshType(object):
+    class DataRefreshType(enum.IntEnum):
         """
         Represents how the data source supports data auto refresh.
 
@@ -135,13 +143,14 @@ class DataSource(object):
           for the past few days. Allows custom values to be set for each transfer
           config.
         """
+
         DATA_REFRESH_TYPE_UNSPECIFIED = 0
         SLIDING_WINDOW = 1
         CUSTOM_SLIDING_WINDOW = 2
 
 
 class ListTransferRunsRequest(object):
-    class RunAttempt(object):
+    class RunAttempt(enum.IntEnum):
         """
         Represents which runs should be pulled.
 
@@ -149,5 +158,6 @@ class ListTransferRunsRequest(object):
           RUN_ATTEMPT_UNSPECIFIED (int): All runs should be returned.
           LATEST (int): Only latest run per day should be returned.
         """
+
         RUN_ATTEMPT_UNSPECIFIED = 0
         LATEST = 1

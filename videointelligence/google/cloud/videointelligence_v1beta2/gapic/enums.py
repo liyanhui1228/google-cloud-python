@@ -1,10 +1,12 @@
-# Copyright 2017, Google LLC All rights reserved.
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,8 +15,10 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
+import enum
 
-class Feature(object):
+
+class Feature(enum.IntEnum):
     """
     Video annotation feature.
 
@@ -25,6 +29,7 @@ class Feature(object):
       EXPLICIT_CONTENT_DETECTION (int): Explicit content detection.
       FACE_DETECTION (int): Human face detection and tracking.
     """
+
     FEATURE_UNSPECIFIED = 0
     LABEL_DETECTION = 1
     SHOT_CHANGE_DETECTION = 2
@@ -32,7 +37,7 @@ class Feature(object):
     FACE_DETECTION = 4
 
 
-class LabelDetectionMode(object):
+class LabelDetectionMode(enum.IntEnum):
     """
     Label detection mode.
 
@@ -42,13 +47,14 @@ class LabelDetectionMode(object):
       FRAME_MODE (int): Detect frame-level labels.
       SHOT_AND_FRAME_MODE (int): Detect both shot-level and frame-level labels.
     """
+
     LABEL_DETECTION_MODE_UNSPECIFIED = 0
     SHOT_MODE = 1
     FRAME_MODE = 2
     SHOT_AND_FRAME_MODE = 3
 
 
-class Likelihood(object):
+class Likelihood(enum.IntEnum):
     """
     Bucketized representation of likelihood.
 
@@ -60,6 +66,7 @@ class Likelihood(object):
       LIKELY (int): Likely.
       VERY_LIKELY (int): Very likely.
     """
+
     LIKELIHOOD_UNSPECIFIED = 0
     VERY_UNLIKELY = 1
     UNLIKELY = 2

@@ -24,10 +24,14 @@ class SpeechHelpers(object):
     in a multiple-inheritance construction alongside the applicable GAPIC.
     See the :class:`~google.cloud.speech_v1.SpeechClient`.
     """
+
     def streaming_recognize(
-            self, config, requests,
-            retry=google.api_core.gapic_v1.method.DEFAULT,
-            timeout=google.api_core.gapic_v1.method.DEFAULT):
+        self,
+        config,
+        requests,
+        retry=google.api_core.gapic_v1.method.DEFAULT,
+        timeout=google.api_core.gapic_v1.method.DEFAULT,
+    ):
         """Perform bi-directional speech recognition.
 
         This method allows you to receive results while sending audio;
@@ -73,9 +77,10 @@ class SpeechHelpers(object):
           :exc:`google.gax.errors.GaxError` if the RPC is aborted.
           :exc:`ValueError` if the parameters are invalid.
         """
-        return self._streaming_recognize(
+        return super(SpeechHelpers, self).streaming_recognize(
             self._streaming_request_iterable(config, requests),
-            retry=retry, timeout=timeout
+            retry=retry,
+            timeout=timeout,
         )
 
     def _streaming_request_iterable(self, config, requests):

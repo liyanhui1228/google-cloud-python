@@ -1,10 +1,12 @@
-# Copyright 2017, Google LLC All rights reserved.
+# -*- coding: utf-8 -*-
+#
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,28 +15,31 @@
 # limitations under the License.
 """Wrappers for protocol buffer enum types."""
 
+import enum
 
-class EncodingType(object):
+
+class EncodingType(enum.IntEnum):
     """
     Represents the text encoding that the caller uses to process the output.
-    Providing an ``EncodingType`` is recommended because the API provides the
-    beginning offsets for various outputs, such as tokens and mentions, and
-    languages that natively use different text encodings may access offsets
-    differently.
+    Providing an ``EncodingType`` is recommended because the API provides
+    the beginning offsets for various outputs, such as tokens and mentions,
+    and languages that natively use different text encodings may access
+    offsets differently.
 
     Attributes:
-      NONE (int): If ``EncodingType`` is not specified, encoding-dependent information (such as
-      ``begin_offset``) will be set at ``-1``.
-      UTF8 (int): Encoding-dependent information (such as ``begin_offset``) is calculated based
-      on the UTF-8 encoding of the input. C++ and Go are examples of languages
-      that use this encoding natively.
-      UTF16 (int): Encoding-dependent information (such as ``begin_offset``) is calculated based
-      on the UTF-16 encoding of the input. Java and Javascript are examples of
+      NONE (int): If ``EncodingType`` is not specified, encoding-dependent information
+      (such as ``begin_offset``) will be set at ``-1``.
+      UTF8 (int): Encoding-dependent information (such as ``begin_offset``) is calculated
+      based on the UTF-8 encoding of the input. C++ and Go are examples of
       languages that use this encoding natively.
-      UTF32 (int): Encoding-dependent information (such as ``begin_offset``) is calculated based
-      on the UTF-32 encoding of the input. Python is an example of a language
-      that uses this encoding natively.
+      UTF16 (int): Encoding-dependent information (such as ``begin_offset``) is calculated
+      based on the UTF-16 encoding of the input. Java and Javascript are
+      examples of languages that use this encoding natively.
+      UTF32 (int): Encoding-dependent information (such as ``begin_offset``) is calculated
+      based on the UTF-32 encoding of the input. Python is an example of a
+      language that uses this encoding natively.
     """
+
     NONE = 0
     UTF8 = 1
     UTF16 = 2
@@ -42,7 +47,7 @@ class EncodingType(object):
 
 
 class Document(object):
-    class Type(object):
+    class Type(enum.IntEnum):
         """
         The document types enum.
 
@@ -51,13 +56,14 @@ class Document(object):
           PLAIN_TEXT (int): Plain text
           HTML (int): HTML
         """
+
         TYPE_UNSPECIFIED = 0
         PLAIN_TEXT = 1
         HTML = 2
 
 
 class Entity(object):
-    class Type(object):
+    class Type(enum.IntEnum):
         """
         The type of the entity.
 
@@ -71,6 +77,7 @@ class Entity(object):
           CONSUMER_GOOD (int): Consumer goods
           OTHER (int): Other types
         """
+
         UNKNOWN = 0
         PERSON = 1
         LOCATION = 2
@@ -82,7 +89,7 @@ class Entity(object):
 
 
 class PartOfSpeech(object):
-    class Tag(object):
+    class Tag(enum.IntEnum):
         """
         The part of speech tags enum.
 
@@ -102,6 +109,7 @@ class PartOfSpeech(object):
           X (int): Other: foreign words, typos, abbreviations
           AFFIX (int): Affix
         """
+
         UNKNOWN = 0
         ADJ = 1
         ADP = 2
@@ -117,7 +125,7 @@ class PartOfSpeech(object):
         X = 12
         AFFIX = 13
 
-    class Aspect(object):
+    class Aspect(enum.IntEnum):
         """
         The characteristic of a verb that expresses time flow during an event.
 
@@ -127,12 +135,13 @@ class PartOfSpeech(object):
           IMPERFECTIVE (int): Imperfective
           PROGRESSIVE (int): Progressive
         """
+
         ASPECT_UNKNOWN = 0
         PERFECTIVE = 1
         IMPERFECTIVE = 2
         PROGRESSIVE = 3
 
-    class Case(object):
+    class Case(enum.IntEnum):
         """
         The grammatical function performed by a noun or pronoun in a phrase,
         clause, or sentence. In some languages, other parts of speech, such as
@@ -155,6 +164,7 @@ class PartOfSpeech(object):
           RELATIVE_CASE (int): Relative
           VOCATIVE (int): Vocative
         """
+
         CASE_UNKNOWN = 0
         ACCUSATIVE = 1
         ADVERBIAL = 2
@@ -171,7 +181,7 @@ class PartOfSpeech(object):
         RELATIVE_CASE = 13
         VOCATIVE = 14
 
-    class Form(object):
+    class Form(enum.IntEnum):
         """
         Depending on the language, Form can be categorizing different forms of
         verbs, adjectives, adverbs, etc. For example, categorizing inflected
@@ -192,6 +202,7 @@ class PartOfSpeech(object):
           ORDER (int): Order form
           SPECIFIC (int): Specific form
         """
+
         FORM_UNKNOWN = 0
         ADNOMIAL = 1
         AUXILIARY = 2
@@ -205,7 +216,7 @@ class PartOfSpeech(object):
         ORDER = 10
         SPECIFIC = 11
 
-    class Gender(object):
+    class Gender(enum.IntEnum):
         """
         Gender classes of nouns reflected in the behaviour of associated words.
 
@@ -215,12 +226,13 @@ class PartOfSpeech(object):
           MASCULINE (int): Masculine
           NEUTER (int): Neuter
         """
+
         GENDER_UNKNOWN = 0
         FEMININE = 1
         MASCULINE = 2
         NEUTER = 3
 
-    class Mood(object):
+    class Mood(enum.IntEnum):
         """
         The grammatical feature of verbs, used for showing modality and attitude.
 
@@ -233,6 +245,7 @@ class PartOfSpeech(object):
           JUSSIVE (int): Jussive
           SUBJUNCTIVE (int): Subjunctive
         """
+
         MOOD_UNKNOWN = 0
         CONDITIONAL_MOOD = 1
         IMPERATIVE = 2
@@ -241,7 +254,7 @@ class PartOfSpeech(object):
         JUSSIVE = 5
         SUBJUNCTIVE = 6
 
-    class Number(object):
+    class Number(enum.IntEnum):
         """
         Count distinctions.
 
@@ -251,12 +264,13 @@ class PartOfSpeech(object):
           PLURAL (int): Plural
           DUAL (int): Dual
         """
+
         NUMBER_UNKNOWN = 0
         SINGULAR = 1
         PLURAL = 2
         DUAL = 3
 
-    class Person(object):
+    class Person(enum.IntEnum):
         """
         The distinction between the speaker, second person, third person, etc.
 
@@ -267,13 +281,14 @@ class PartOfSpeech(object):
           THIRD (int): Third
           REFLEXIVE_PERSON (int): Reflexive
         """
+
         PERSON_UNKNOWN = 0
         FIRST = 1
         SECOND = 2
         THIRD = 3
         REFLEXIVE_PERSON = 4
 
-    class Proper(object):
+    class Proper(enum.IntEnum):
         """
         This category shows if the token is part of a proper name.
 
@@ -282,11 +297,12 @@ class PartOfSpeech(object):
           PROPER (int): Proper
           NOT_PROPER (int): Not proper
         """
+
         PROPER_UNKNOWN = 0
         PROPER = 1
         NOT_PROPER = 2
 
-    class Reciprocity(object):
+    class Reciprocity(enum.IntEnum):
         """
         Reciprocal features of a pronoun.
 
@@ -296,11 +312,12 @@ class PartOfSpeech(object):
           RECIPROCAL (int): Reciprocal
           NON_RECIPROCAL (int): Non-reciprocal
         """
+
         RECIPROCITY_UNKNOWN = 0
         RECIPROCAL = 1
         NON_RECIPROCAL = 2
 
-    class Tense(object):
+    class Tense(enum.IntEnum):
         """
         Time reference.
 
@@ -313,6 +330,7 @@ class PartOfSpeech(object):
           IMPERFECT (int): Imperfect
           PLUPERFECT (int): Pluperfect
         """
+
         TENSE_UNKNOWN = 0
         CONDITIONAL_TENSE = 1
         FUTURE = 2
@@ -321,7 +339,7 @@ class PartOfSpeech(object):
         IMPERFECT = 5
         PLUPERFECT = 6
 
-    class Voice(object):
+    class Voice(enum.IntEnum):
         """
         The relationship between the action that a verb expresses and the
         participants identified by its arguments.
@@ -332,6 +350,7 @@ class PartOfSpeech(object):
           CAUSATIVE (int): Causative
           PASSIVE (int): Passive
         """
+
         VOICE_UNKNOWN = 0
         ACTIVE = 1
         CAUSATIVE = 2
@@ -339,7 +358,7 @@ class PartOfSpeech(object):
 
 
 class DependencyEdge(object):
-    class Label(object):
+    class Label(enum.IntEnum):
         """
         The parse label enum for the token.
 
@@ -428,6 +447,7 @@ class DependencyEdge(object):
           MES (int): Measure
           NCOMP (int): Nominal complement of a noun
         """
+
         UNKNOWN = 0
         ABBREV = 1
         ACOMP = 2
@@ -514,7 +534,7 @@ class DependencyEdge(object):
 
 
 class EntityMention(object):
-    class Type(object):
+    class Type(enum.IntEnum):
         """
         The supported types of mentions.
 
@@ -523,6 +543,7 @@ class EntityMention(object):
           PROPER (int): Proper name
           COMMON (int): Common noun (or noun compound)
         """
+
         TYPE_UNKNOWN = 0
         PROPER = 1
         COMMON = 2

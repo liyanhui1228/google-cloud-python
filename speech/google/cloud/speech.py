@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#
 # Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,8 +20,4 @@ from google.cloud.speech_v1 import SpeechClient
 from google.cloud.speech_v1 import enums
 from google.cloud.speech_v1 import types
 
-__all__ = (
-    'enums',
-    'types',
-    'SpeechClient',
-)
+__all__ = ("enums", "types", "SpeechClient")

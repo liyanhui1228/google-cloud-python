@@ -17,13 +17,11 @@
 import copy
 import threading
 
-import six
 from six.moves import http_client
 
 import google.api_core.future.polling
 from google.cloud import exceptions
 from google.cloud.exceptions import NotFound
-from google.cloud._helpers import _datetime_from_microseconds
 from google.cloud.bigquery.dataset import DatasetReference
 from google.cloud.bigquery.external_config import ExternalConfig
 from google.cloud.bigquery.query import _query_param_from_api_repr
@@ -31,39 +29,38 @@ from google.cloud.bigquery.query import ArrayQueryParameter
 from google.cloud.bigquery.query import ScalarQueryParameter
 from google.cloud.bigquery.query import StructQueryParameter
 from google.cloud.bigquery.query import UDFResource
+from google.cloud.bigquery.retry import DEFAULT_RETRY
 from google.cloud.bigquery.schema import SchemaField
+from google.cloud.bigquery.table import _EmptyRowIterator
 from google.cloud.bigquery.table import EncryptionConfiguration
 from google.cloud.bigquery.table import TableReference
-from google.cloud.bigquery.table import _build_schema_resource
-from google.cloud.bigquery.table import _parse_schema_resource
-from google.cloud.bigquery._helpers import _EnumApiResourceProperty
-from google.cloud.bigquery._helpers import _TypedApiResourceProperty
-from google.cloud.bigquery._helpers import DEFAULT_RETRY
-from google.cloud.bigquery._helpers import _int_or_none
+from google.cloud.bigquery.table import Table
+from google.cloud.bigquery.table import TimePartitioning
+from google.cloud.bigquery import _helpers
 
-_DONE_STATE = 'DONE'
-_STOPPED_REASON = 'stopped'
+_DONE_STATE = "DONE"
+_STOPPED_REASON = "stopped"
 _TIMEOUT_BUFFER_SECS = 0.1
 
 _ERROR_REASON_TO_EXCEPTION = {
-    'accessDenied': http_client.FORBIDDEN,
-    'backendError': http_client.INTERNAL_SERVER_ERROR,
-    'billingNotEnabled': http_client.FORBIDDEN,
-    'billingTierLimitExceeded': http_client.BAD_REQUEST,
-    'blocked': http_client.FORBIDDEN,
-    'duplicate': http_client.CONFLICT,
-    'internalError': http_client.INTERNAL_SERVER_ERROR,
-    'invalid': http_client.BAD_REQUEST,
-    'invalidQuery': http_client.BAD_REQUEST,
-    'notFound': http_client.NOT_FOUND,
-    'notImplemented': http_client.NOT_IMPLEMENTED,
-    'quotaExceeded': http_client.FORBIDDEN,
-    'rateLimitExceeded': http_client.FORBIDDEN,
-    'resourceInUse': http_client.BAD_REQUEST,
-    'resourcesExceeded': http_client.BAD_REQUEST,
-    'responseTooLarge': http_client.FORBIDDEN,
-    'stopped': http_client.OK,
-    'tableUnavailable': http_client.BAD_REQUEST,
+    "accessDenied": http_client.FORBIDDEN,
+    "backendError": http_client.INTERNAL_SERVER_ERROR,
+    "billingNotEnabled": http_client.FORBIDDEN,
+    "billingTierLimitExceeded": http_client.BAD_REQUEST,
+    "blocked": http_client.FORBIDDEN,
+    "duplicate": http_client.CONFLICT,
+    "internalError": http_client.INTERNAL_SERVER_ERROR,
+    "invalid": http_client.BAD_REQUEST,
+    "invalidQuery": http_client.BAD_REQUEST,
+    "notFound": http_client.NOT_FOUND,
+    "notImplemented": http_client.NOT_IMPLEMENTED,
+    "quotaExceeded": http_client.FORBIDDEN,
+    "rateLimitExceeded": http_client.FORBIDDEN,
+    "resourceInUse": http_client.BAD_REQUEST,
+    "resourcesExceeded": http_client.BAD_REQUEST,
+    "responseTooLarge": http_client.FORBIDDEN,
+    "stopped": http_client.OK,
+    "tableUnavailable": http_client.BAD_REQUEST,
 }
 
 
@@ -82,86 +79,228 @@ def _error_result_to_exception(error_result):
     :rtype google.cloud.exceptions.GoogleCloudError:
     :returns: The mapped exception.
     """
-    reason = error_result.get('reason')
+    reason = error_result.get("reason")
     status_code = _ERROR_REASON_TO_EXCEPTION.get(
-        reason, http_client.INTERNAL_SERVER_ERROR)
+        reason, http_client.INTERNAL_SERVER_ERROR
+    )
     return exceptions.from_http_status(
-        status_code, error_result.get('message', ''), errors=[error_result])
+        status_code, error_result.get("message", ""), errors=[error_result]
+    )
 
 
-class Compression(_EnumApiResourceProperty):
-    """Pseudo-enum for ``compression`` properties."""
-    GZIP = 'GZIP'
-    NONE = 'NONE'
+class Compression(object):
+    """The compression type to use for exported files. The default value is
+    :attr:`NONE`.
 
-
-class CreateDisposition(_EnumApiResourceProperty):
-    """Pseudo-enum for ``create_disposition`` properties."""
-    CREATE_IF_NEEDED = 'CREATE_IF_NEEDED'
-    CREATE_NEVER = 'CREATE_NEVER'
-
-
-class DestinationFormat(_EnumApiResourceProperty):
-    """Pseudo-enum for ``destination_format`` properties."""
-    CSV = 'CSV'
-    NEWLINE_DELIMITED_JSON = 'NEWLINE_DELIMITED_JSON'
-    AVRO = 'AVRO'
-
-
-class Encoding(_EnumApiResourceProperty):
-    """Pseudo-enum for ``encoding`` properties."""
-    UTF_8 = 'UTF-8'
-    ISO_8559_1 = 'ISO-8559-1'
-
-
-class QueryPriority(_EnumApiResourceProperty):
-    """Pseudo-enum for ``QueryJob.priority`` property."""
-    INTERACTIVE = 'INTERACTIVE'
-    BATCH = 'BATCH'
-
-
-class SourceFormat(_EnumApiResourceProperty):
-    """Pseudo-enum for ``source_format`` properties."""
-    CSV = 'CSV'
-    DATASTORE_BACKUP = 'DATASTORE_BACKUP'
-    NEWLINE_DELIMITED_JSON = 'NEWLINE_DELIMITED_JSON'
-    AVRO = 'AVRO'
-
-
-class WriteDisposition(_EnumApiResourceProperty):
-    """Pseudo-enum for ``write_disposition`` properties."""
-    WRITE_APPEND = 'WRITE_APPEND'
-    WRITE_TRUNCATE = 'WRITE_TRUNCATE'
-    WRITE_EMPTY = 'WRITE_EMPTY'
-
-
-class AutoDetectSchema(_TypedApiResourceProperty):
-    """Property for ``autodetect`` properties.
-
-    :raises ValueError: on ``set`` operation if ``instance.schema``
-                        is already defined.
+    :attr:`DEFLATE` and :attr:`SNAPPY` are
+    only supported for Avro.
     """
-    def __set__(self, instance, value):
-        self._validate(value)
-        instance._properties[self.resource_name] = value
+
+    GZIP = "GZIP"
+    """Specifies GZIP format."""
+
+    DEFLATE = "DEFLATE"
+    """Specifies DEFLATE format."""
+
+    SNAPPY = "SNAPPY"
+    """Specifies SNAPPY format."""
+
+    NONE = "NONE"
+    """Specifies no compression."""
+
+
+class CreateDisposition(object):
+    """Specifies whether the job is allowed to create new tables. The default
+    value is :attr:`CREATE_IF_NEEDED`.
+
+    Creation, truncation and append actions occur as one atomic update
+    upon job completion.
+    """
+
+    CREATE_IF_NEEDED = "CREATE_IF_NEEDED"
+    """If the table does not exist, BigQuery creates the table."""
+
+    CREATE_NEVER = "CREATE_NEVER"
+    """The table must already exist. If it does not, a 'notFound' error is
+    returned in the job result."""
+
+
+class DestinationFormat(object):
+    """The exported file format. The default value is :attr:`CSV`.
+
+    Tables with nested or repeated fields cannot be exported as CSV.
+    """
+
+    CSV = "CSV"
+    """Specifies CSV format."""
+
+    NEWLINE_DELIMITED_JSON = "NEWLINE_DELIMITED_JSON"
+    """Specifies newline delimited JSON format."""
+
+    AVRO = "AVRO"
+    """Specifies Avro format."""
+
+
+class Encoding(object):
+    """The character encoding of the data. The default is :attr:`UTF_8`.
+
+    BigQuery decodes the data after the raw, binary data has been
+    split using the values of the quote and fieldDelimiter properties.
+    """
+
+    UTF_8 = "UTF-8"
+    """Specifies UTF-8 encoding."""
+
+    ISO_8859_1 = "ISO-8859-1"
+    """Specifies ISO-8859-1 encoding."""
+
+
+class QueryPriority(object):
+    """Specifies a priority for the query. The default value is
+    :attr:`INTERACTIVE`.
+    """
+
+    INTERACTIVE = "INTERACTIVE"
+    """Specifies interactive priority."""
+
+    BATCH = "BATCH"
+    """Specifies batch priority."""
+
+
+class SourceFormat(object):
+    """The format of the data files. The default value is :attr:`CSV`.
+
+    Note that the set of allowed values for loading data is different
+    than the set used for external data sources (see
+    :class:`~google.cloud.bigquery.external_config.ExternalSourceFormat`).
+    """
+
+    CSV = "CSV"
+    """Specifies CSV format."""
+
+    DATASTORE_BACKUP = "DATASTORE_BACKUP"
+    """Specifies datastore backup format"""
+
+    NEWLINE_DELIMITED_JSON = "NEWLINE_DELIMITED_JSON"
+    """Specifies newline delimited JSON format."""
+
+    AVRO = "AVRO"
+    """Specifies Avro format."""
+
+    PARQUET = "PARQUET"
+    """Specifies Parquet format."""
+
+    ORC = "ORC"
+    """Specifies Orc format."""
+
+
+class WriteDisposition(object):
+    """Specifies the action that occurs if destination table already exists.
+
+    The default value is :attr:`WRITE_APPEND`.
+
+    Each action is atomic and only occurs if BigQuery is able to complete
+    the job successfully. Creation, truncation and append actions occur as one
+    atomic update upon job completion.
+    """
+
+    WRITE_APPEND = "WRITE_APPEND"
+    """If the table already exists, BigQuery appends the data to the table."""
+
+    WRITE_TRUNCATE = "WRITE_TRUNCATE"
+    """If the table already exists, BigQuery overwrites the table data."""
+
+    WRITE_EMPTY = "WRITE_EMPTY"
+    """If the table already exists and contains data, a 'duplicate' error is
+    returned in the job result."""
+
+
+class SchemaUpdateOption(object):
+    """Specifies an update to the destination table schema as a side effect of
+    a load job.
+    """
+
+    ALLOW_FIELD_ADDITION = "ALLOW_FIELD_ADDITION"
+    """Allow adding a nullable field to the schema."""
+
+    ALLOW_FIELD_RELAXATION = "ALLOW_FIELD_RELAXATION"
+    """Allow relaxing a required field in the original schema to nullable."""
+
+
+class _JobReference(object):
+    """A reference to a job.
+
+    Arguments:
+        job_id (str): ID of the job to run.
+        project (str): ID of the project where the job runs.
+        location (str): Location of where the job runs.
+    """
+
+    def __init__(self, job_id, project, location):
+        self._properties = {"jobId": job_id, "projectId": project}
+        # The location field must not be populated if it is None.
+        if location:
+            self._properties["location"] = location
+
+    @property
+    def job_id(self):
+        """str: ID of the job."""
+        return self._properties.get("jobId")
+
+    @property
+    def project(self):
+        """str: ID of the project where the job runs."""
+        return self._properties.get("projectId")
+
+    @property
+    def location(self):
+        """str: Location where the job runs."""
+        return self._properties.get("location")
+
+    def _to_api_repr(self):
+        """Returns the API resource representation of the job reference."""
+        return copy.deepcopy(self._properties)
+
+    @classmethod
+    def _from_api_repr(cls, resource):
+        """Returns a job reference for an API resource representation."""
+        job_id = resource.get("jobId")
+        project = resource.get("projectId")
+        location = resource.get("location")
+        job_ref = cls(job_id, project, location)
+        return job_ref
 
 
 class _AsyncJob(google.api_core.future.polling.PollingFuture):
     """Base class for asynchronous jobs.
 
-    :type job_id: str
-    :param job_id: the job's ID in the project associated with the client.
-
-    :type client: :class:`google.cloud.bigquery.client.Client`
-    :param client: A client which holds credentials and project configuration.
+    Arguments:
+        job_id (Union[str, _JobReference]):
+            Job's ID in the project associated with the client or a
+            fully-qualified job reference.
+        client (google.cloud.bigquery.client.Client):
+            Client which holds credentials and project configuration.
     """
+
     def __init__(self, job_id, client):
         super(_AsyncJob, self).__init__()
-        self.job_id = job_id
+
+        # The job reference can be either a plain job ID or the full resource.
+        # Populate the properties dictionary consistently depending on what has
+        # been passed in.
+        job_ref = job_id
+        if not isinstance(job_id, _JobReference):
+            job_ref = _JobReference(job_id, client.project, None)
+        self._properties = {"jobReference": job_ref._to_api_repr()}
+
         self._client = client
-        self._properties = {}
         self._result_set = False
         self._completion_lock = threading.Lock()
+
+    @property
+    def job_id(self):
+        """str: ID of the job."""
+        return _helpers._get_sub_prop(self._properties, ["jobReference", "jobId"])
 
     @property
     def project(self):
@@ -170,7 +309,12 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str
         :returns: the project (derived from the client).
         """
-        return self._client.project
+        return _helpers._get_sub_prop(self._properties, ["jobReference", "projectId"])
+
+    @property
+    def location(self):
+        """str: Location where the job runs."""
+        return _helpers._get_sub_prop(self._properties, ["jobReference", "location"])
 
     def _require_client(self, client):
         """Check client or verify over-ride.
@@ -203,7 +347,12 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str
         :returns: the path based on project and job ID.
         """
-        return '/projects/%s/jobs/%s' % (self.project, self.job_id)
+        return "/projects/%s/jobs/%s" % (self.project, self.job_id)
+
+    @property
+    def labels(self):
+        """Dict[str, str]: Labels for the job."""
+        return self._properties.setdefault("labels", {})
 
     @property
     def etag(self):
@@ -212,7 +361,7 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str, or ``NoneType``
         :returns: the ETag (None until set from the server).
         """
-        return self._properties.get('etag')
+        return self._properties.get("etag")
 
     @property
     def self_link(self):
@@ -221,7 +370,7 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str, or ``NoneType``
         :returns: the URL (None until set from the server).
         """
-        return self._properties.get('selfLink')
+        return self._properties.get("selfLink")
 
     @property
     def user_email(self):
@@ -230,7 +379,7 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str, or ``NoneType``
         :returns: the URL (None until set from the server).
         """
-        return self._properties.get('user_email')
+        return self._properties.get("user_email")
 
     @property
     def created(self):
@@ -239,11 +388,11 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: ``datetime.datetime``, or ``NoneType``
         :returns: the creation time (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
+        statistics = self._properties.get("statistics")
         if statistics is not None:
-            millis = statistics.get('creationTime')
+            millis = statistics.get("creationTime")
             if millis is not None:
-                return _datetime_from_microseconds(millis * 1000.0)
+                return _helpers._datetime_from_microseconds(millis * 1000.0)
 
     @property
     def started(self):
@@ -252,11 +401,11 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: ``datetime.datetime``, or ``NoneType``
         :returns: the start time (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
+        statistics = self._properties.get("statistics")
         if statistics is not None:
-            millis = statistics.get('startTime')
+            millis = statistics.get("startTime")
             if millis is not None:
-                return _datetime_from_microseconds(millis * 1000.0)
+                return _helpers._datetime_from_microseconds(millis * 1000.0)
 
     @property
     def ended(self):
@@ -265,15 +414,15 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: ``datetime.datetime``, or ``NoneType``
         :returns: the end time (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
+        statistics = self._properties.get("statistics")
         if statistics is not None:
-            millis = statistics.get('endTime')
+            millis = statistics.get("endTime")
             if millis is not None:
-                return _datetime_from_microseconds(millis * 1000.0)
+                return _helpers._datetime_from_microseconds(millis * 1000.0)
 
     def _job_statistics(self):
         """Helper for job-type specific statistics-based properties."""
-        statistics = self._properties.get('statistics', {})
+        statistics = self._properties.get("statistics", {})
         return statistics.get(self._JOB_TYPE, {})
 
     @property
@@ -283,9 +432,9 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: mapping, or ``NoneType``
         :returns: the error information (None until set from the server).
         """
-        status = self._properties.get('status')
+        status = self._properties.get("status")
         if status is not None:
-            return status.get('errorResult')
+            return status.get("errorResult")
 
     @property
     def errors(self):
@@ -294,9 +443,9 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: list of mappings, or ``NoneType``
         :returns: the error information (None until set from the server).
         """
-        status = self._properties.get('status')
+        status = self._properties.get("status")
         if status is not None:
-            return status.get('errors')
+            return status.get("errors")
 
     @property
     def state(self):
@@ -305,9 +454,9 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: str, or ``NoneType``
         :returns: the state (None until set from the server).
         """
-        status = self._properties.get('status')
+        status = self._properties.get("status")
         if status is not None:
-            return status.get('state')
+            return status.get("state")
 
     def _scrub_local_properties(self, cleaned):
         """Helper:  handle subclass properties in cleaned."""
@@ -326,18 +475,17 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         cleaned = api_response.copy()
         self._scrub_local_properties(cleaned)
 
-        statistics = cleaned.get('statistics', {})
-        if 'creationTime' in statistics:
-            statistics['creationTime'] = float(statistics['creationTime'])
-        if 'startTime' in statistics:
-            statistics['startTime'] = float(statistics['startTime'])
-        if 'endTime' in statistics:
-            statistics['endTime'] = float(statistics['endTime'])
+        statistics = cleaned.get("statistics", {})
+        if "creationTime" in statistics:
+            statistics["creationTime"] = float(statistics["creationTime"])
+        if "startTime" in statistics:
+            statistics["startTime"] = float(statistics["startTime"])
+        if "endTime" in statistics:
+            statistics["endTime"] = float(statistics["endTime"])
 
         self._properties.clear()
         self._properties.update(cleaned)
-        configuration = cleaned['configuration'][self._JOB_TYPE]
-        self._copy_configuration_properties(configuration)
+        self._copy_configuration_properties(cleaned.get("configuration", {}))
 
         # For Future interface
         self._set_future_result()
@@ -355,17 +503,27 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :raises: :class:`KeyError` if the resource has no identifier, or
                  is missing the appropriate configuration.
         """
-        if ('jobReference' not in resource or
-                'jobId' not in resource['jobReference']):
-            raise KeyError('Resource lacks required identity information: '
-                           '["jobReference"]["jobId"]')
-        job_id = resource['jobReference']['jobId']
-        if ('configuration' not in resource or
-                cls._JOB_TYPE not in resource['configuration']):
-            raise KeyError('Resource lacks required configuration: '
-                           '["configuration"]["%s"]' % cls._JOB_TYPE)
-        config = resource['configuration'][cls._JOB_TYPE]
-        return job_id, config
+        if "jobReference" not in resource or "jobId" not in resource["jobReference"]:
+            raise KeyError(
+                "Resource lacks required identity information: "
+                '["jobReference"]["jobId"]'
+            )
+        job_id = resource["jobReference"]["jobId"]
+        if (
+            "configuration" not in resource
+            or cls._JOB_TYPE not in resource["configuration"]
+        ):
+            raise KeyError(
+                "Resource lacks required configuration: "
+                '["configuration"]["%s"]' % cls._JOB_TYPE
+            )
+        return job_id, resource["configuration"]
+
+    def to_api_repr(self):
+        """Generate a resource for the job."""
+        raise NotImplementedError("Abstract")
+
+    _build_resource = to_api_repr  # backward-compatibility alias
 
     def _begin(self, client=None, retry=DEFAULT_RETRY):
         """API call:  begin the job via a POST request
@@ -387,13 +545,13 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
             raise ValueError("Job already begun.")
 
         client = self._require_client(client)
-        path = '/projects/%s/jobs' % (self.project,)
+        path = "/projects/%s/jobs" % (self.project,)
 
         # jobs.insert is idempotent because we ensure that every new
         # job has an ID.
         api_response = client._call_api(
-            retry,
-            method='POST', path=path, data=self._build_resource())
+            retry, method="POST", path=path, data=self.to_api_repr()
+        )
         self._set_properties(api_response)
 
     def exists(self, client=None, retry=DEFAULT_RETRY):
@@ -415,10 +573,14 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         """
         client = self._require_client(client)
 
+        extra_params = {"fields": "id"}
+        if self.location:
+            extra_params["location"] = self.location
+
         try:
-            client._call_api(retry,
-                             method='GET', path=self.path,
-                             query_params={'fields': 'id'})
+            client._call_api(
+                retry, method="GET", path=self.path, query_params=extra_params
+            )
         except NotFound:
             return False
         else:
@@ -440,7 +602,13 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         """
         client = self._require_client(client)
 
-        api_response = client._call_api(retry, method='GET', path=self.path)
+        extra_params = {}
+        if self.location:
+            extra_params["location"] = self.location
+
+        api_response = client._call_api(
+            retry, method="GET", path=self.path, query_params=extra_params
+        )
         self._set_properties(api_response)
 
     def cancel(self, client=None):
@@ -459,9 +627,14 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         """
         client = self._require_client(client)
 
+        extra_params = {}
+        if self.location:
+            extra_params["location"] = self.location
+
         api_response = client._connection.api_request(
-            method='POST', path='%s/cancel' % (self.path,))
-        self._set_properties(api_response['job'])
+            method="POST", path="%s/cancel" % (self.path,), query_params=extra_params
+        )
+        self._set_properties(api_response["job"])
         # The Future interface requires that we return True if the *attempt*
         # to cancel was successful.
         return True
@@ -505,13 +678,16 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
             self.reload(retry=retry)
         return self.state == _DONE_STATE
 
-    def result(self, timeout=None):
+    def result(self, timeout=None, retry=DEFAULT_RETRY):
         """Start the job and wait for it to complete and get the result.
 
         :type timeout: float
         :param timeout:
             How long (in seconds) to wait for job to complete before raising
             a :class:`concurrent.futures.TimeoutError`.
+
+        :type retry: :class:`google.api_core.retry.Retry`
+        :param retry: (Optional) How to retry the RPC.
 
         :rtype: _AsyncJob
         :returns: This instance.
@@ -522,7 +698,7 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
             not complete in the given timeout.
         """
         if self.state is None:
-            self._begin()
+            self._begin(retry=retry)
         # TODO: modify PollingFuture so it can pass a retry argument to done().
         return super(_AsyncJob, self).result(timeout=timeout)
 
@@ -536,147 +712,157 @@ class _AsyncJob(google.api_core.future.polling.PollingFuture):
         :rtype: bool
         :returns: False
         """
-        return (self.error_result is not None
-                and self.error_result.get('reason') == _STOPPED_REASON)
+        return (
+            self.error_result is not None
+            and self.error_result.get("reason") == _STOPPED_REASON
+        )
 
 
-class LoadJobConfig(object):
-    """Configuration options for load jobs.
+class _JobConfig(object):
+    """Abstract base class for job configuration objects.
 
-    All properties in this class are optional. Values which are ``None`` ->
-    server defaults.
+    Arguments:
+        job_type (str): The key to use for the job configuration.
     """
 
-    def __init__(self):
-        self._properties = {}
-        self._schema = ()
-
-    allow_jagged_rows = _TypedApiResourceProperty(
-        'allow_jagged_rows', 'allowJaggedRows', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.allowJaggedRows
-    """
-
-    allow_quoted_newlines = _TypedApiResourceProperty(
-        'allow_quoted_newlines', 'allowQuotedNewlines', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.allowQuotedNewlines
-    """
-
-    autodetect = AutoDetectSchema('autodetect', 'autodetect', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.autodetect
-    """
-
-    create_disposition = CreateDisposition('create_disposition',
-                                           'createDisposition')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.createDisposition
-    """
-
-    encoding = Encoding('encoding', 'encoding')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.encoding
-    """
-
-    field_delimiter = _TypedApiResourceProperty(
-        'field_delimiter', 'fieldDelimiter', six.string_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.fieldDelimiter
-    """
-
-    ignore_unknown_values = _TypedApiResourceProperty(
-        'ignore_unknown_values', 'ignoreUnknownValues', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.ignoreUnknownValues
-    """
-
-    max_bad_records = _TypedApiResourceProperty(
-        'max_bad_records', 'maxBadRecords', six.integer_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.maxBadRecords
-    """
-
-    null_marker = _TypedApiResourceProperty(
-        'null_marker', 'nullMarker', six.string_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.nullMarker
-    """
-
-    quote_character = _TypedApiResourceProperty(
-        'quote_character', 'quote', six.string_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.quote
-    """
-
-    skip_leading_rows = _TypedApiResourceProperty(
-        'skip_leading_rows', 'skipLeadingRows', six.integer_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.skipLeadingRows
-    """
-
-    source_format = SourceFormat('source_format', 'sourceFormat')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.sourceFormat
-    """
-
-    write_disposition = WriteDisposition('write_disposition',
-                                         'writeDisposition')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.writeDisposition
-    """
+    def __init__(self, job_type, **kwargs):
+        self._job_type = job_type
+        self._properties = {job_type: {}}
+        for prop, val in kwargs.items():
+            setattr(self, prop, val)
 
     @property
-    def schema(self):
-        """See
-        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.schema
+    def labels(self):
+        """Dict[str, str]: Labels for the job.
+
+        This method always returns a dict. To change a job's labels,
+        modify the dict, then call ``Client.update_job``. To delete a
+        label, set its value to :data:`None` before updating.
+
+        Raises:
+            ValueError: If ``value`` type is invalid.
         """
-        return list(self._schema)
+        return self._properties.setdefault("labels", {})
 
-    @schema.setter
-    def schema(self, value):
-        if not all(isinstance(field, SchemaField) for field in value):
-            raise ValueError('Schema items must be fields')
-        self._schema = tuple(value)
+    @labels.setter
+    def labels(self, value):
+        if not isinstance(value, dict):
+            raise ValueError("Pass a dict")
+        self._properties["labels"] = value
 
-    @property
-    def destination_encryption_configuration(self):
-        """google.cloud.bigquery.table.EncryptionConfiguration: Custom
-        encryption configuration for the destination table.
+    def _get_sub_prop(self, key, default=None):
+        """Get a value in the ``self._properties[self._job_type]`` dictionary.
 
-        Custom encryption configuration (e.g., Cloud KMS keys) or ``None``
-        if using default encryption.
+        Most job properties are inside the dictionary related to the job type
+        (e.g. 'copy', 'extract', 'load', 'query'). Use this method to access
+        those properties::
 
-        See
-        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.destinationEncryptionConfiguration
+            self._get_sub_prop('destinationTable')
+
+        This is equivalent to using the ``_helpers._get_sub_prop`` function::
+
+            _helpers._get_sub_prop(
+                self._properties, ['query', 'destinationTable'])
+
+        Arguments:
+            key (str):
+                 Key for the value to get in the
+                 ``self._properties[self._job_type]`` dictionary.
+            default (object):
+                (Optional) Default value to return if the key is not found.
+                Defaults to :data:`None`.
+
+        Returns:
+            object: The value if present or the default.
         """
-        prop = self._properties.get('destinationEncryptionConfiguration')
-        if prop is not None:
-            prop = EncryptionConfiguration.from_api_repr(prop)
-        return prop
+        return _helpers._get_sub_prop(
+            self._properties, [self._job_type, key], default=default
+        )
 
-    @destination_encryption_configuration.setter
-    def destination_encryption_configuration(self, value):
-        api_repr = value
-        if value is not None:
-            api_repr = value.to_api_repr()
-        self._properties['destinationEncryptionConfiguration'] = api_repr
+    def _set_sub_prop(self, key, value):
+        """Set a value in the ``self._properties[self._job_type]`` dictionary.
+
+        Most job properties are inside the dictionary related to the job type
+        (e.g. 'copy', 'extract', 'load', 'query'). Use this method to set
+        those properties::
+
+            self._set_sub_prop('useLegacySql', False)
+
+        This is equivalent to using the ``_helper._set_sub_prop`` function::
+
+            _helper._set_sub_prop(
+                self._properties, ['query', 'useLegacySql'], False)
+
+        Arguments:
+            key (str):
+                 Key to set in the ``self._properties[self._job_type]``
+                 dictionary.
+            value (object): Value to set.
+        """
+        _helpers._set_sub_prop(self._properties, [self._job_type, key], value)
+
+    def _del_sub_prop(self, key):
+        """Remove ``key`` from the ``self._properties[self._job_type]`` dict.
+
+        Most job properties are inside the dictionary related to the job type
+        (e.g. 'copy', 'extract', 'load', 'query'). Use this method to clear
+        those properties::
+
+            self._del_sub_prop('useLegacySql')
+
+        This is equivalent to using the ``_helper._del_sub_prop`` function::
+
+            _helper._del_sub_prop(
+                self._properties, ['query', 'useLegacySql'])
+
+        Arguments:
+            key (str):
+                 Key to remove in the ``self._properties[self._job_type]``
+                 dictionary.
+        """
+        _helpers._del_sub_prop(self._properties, [self._job_type, key])
 
     def to_api_repr(self):
-        """Build an API representation of the load job config.
+        """Build an API representation of the job config.
 
         :rtype: dict
         :returns: A dictionary in the format used by the BigQuery API.
         """
-        config = copy.deepcopy(self._properties)
-        if len(self.schema) > 0:
-            config['schema'] = {'fields': _build_schema_resource(self.schema)}
-        # skipLeadingRows is a string because it's defined as an int64, which
-        # can't be represented as a JSON number.
-        slr = config.get('skipLeadingRows')
-        if slr is not None:
-            config['skipLeadingRows'] = str(slr)
-        return config
+        return copy.deepcopy(self._properties)
+
+    def _fill_from_default(self, default_job_config):
+        """Merge this job config with a default job config.
+
+        The keys in this object take precedence over the keys in the default
+        config. The merge is done at the top-level as well as for keys one
+        level below the job type.
+
+        Arguments:
+            default_job_config (google.cloud.bigquery.job._JobConfig):
+                The default job config that will be used to fill in self.
+
+        Returns:
+            google.cloud.bigquery.job._JobConfig A new (merged) job config.
+        """
+        if self._job_type != default_job_config._job_type:
+            raise TypeError(
+                "attempted to merge two incompatible job types: "
+                + repr(self._job_type)
+                + ", "
+                + repr(default_job_config._job_type)
+            )
+
+        new_job_config = self.__class__()
+
+        default_job_properties = copy.deepcopy(default_job_config._properties)
+        for key in self._properties:
+            if key != self._job_type:
+                default_job_properties[key] = self._properties[key]
+
+        default_job_properties[self._job_type].update(self._properties[self._job_type])
+        new_job_config._properties = default_job_properties
+
+        return new_job_config
 
     @classmethod
     def from_api_repr(cls, resource):
@@ -687,18 +873,353 @@ class LoadJobConfig(object):
             An extract job configuration in the same representation as is
             returned from the API.
 
-        :rtype: :class:`google.cloud.bigquery.job.LoadJobConfig`
+        :rtype: :class:`google.cloud.bigquery.job._JobConfig`
         :returns: Configuration parsed from ``resource``.
         """
-        schema = resource.pop('schema', {'fields': ()})
-        slr = resource.pop('skipLeadingRows', None)
         config = cls()
         config._properties = copy.deepcopy(resource)
-        config.schema = _parse_schema_resource(schema)
-        config.skip_leading_rows = _int_or_none(slr)
-        if config.skip_leading_rows is None:
-            del config.skip_leading_rows
         return config
+
+
+class LoadJobConfig(_JobConfig):
+    """Configuration options for load jobs.
+
+    All properties in this class are optional. Values which are :data:`None` ->
+    server defaults. Set properties on the constructed configuration by using
+    the property name as the name of a keyword argument.
+    """
+
+    def __init__(self, **kwargs):
+        super(LoadJobConfig, self).__init__("load", **kwargs)
+
+    @property
+    def allow_jagged_rows(self):
+        """bool: Allow missing trailing optional columns (CSV only).
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.allowJaggedRows
+        """
+        return self._get_sub_prop("allowJaggedRows")
+
+    @allow_jagged_rows.setter
+    def allow_jagged_rows(self, value):
+        self._set_sub_prop("allowJaggedRows", value)
+
+    @property
+    def allow_quoted_newlines(self):
+        """bool: Allow quoted data containing newline characters (CSV only).
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.allowQuotedNewlines
+        """
+        return self._get_sub_prop("allowQuotedNewlines")
+
+    @allow_quoted_newlines.setter
+    def allow_quoted_newlines(self, value):
+        self._set_sub_prop("allowQuotedNewlines", value)
+
+    @property
+    def autodetect(self):
+        """bool: Automatically infer the schema from a sample of the data.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.autodetect
+        """
+        return self._get_sub_prop("autodetect")
+
+    @autodetect.setter
+    def autodetect(self, value):
+        self._set_sub_prop("autodetect", value)
+
+    @property
+    def clustering_fields(self):
+        """Union[List[str], None]: Fields defining clustering for the table
+
+        (Defaults to :data:`None`).
+
+        Clustering fields are immutable after table creation.
+
+        .. note::
+
+           As of 2018-06-29, clustering fields cannot be set on a table
+           which does not also have time partioning defined.
+        """
+        prop = self._get_sub_prop("clustering")
+        if prop is not None:
+            return list(prop.get("fields", ()))
+
+    @clustering_fields.setter
+    def clustering_fields(self, value):
+        """Union[List[str], None]: Fields defining clustering for the table
+
+        (Defaults to :data:`None`).
+        """
+        if value is not None:
+            self._set_sub_prop("clustering", {"fields": value})
+        else:
+            self._del_sub_prop("clustering")
+
+    @property
+    def create_disposition(self):
+        """google.cloud.bigquery.job.CreateDisposition: Specifies behavior
+        for creating tables.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.createDisposition
+        """
+        return self._get_sub_prop("createDisposition")
+
+    @create_disposition.setter
+    def create_disposition(self, value):
+        self._set_sub_prop("createDisposition", value)
+
+    @property
+    def destination_encryption_configuration(self):
+        """google.cloud.bigquery.table.EncryptionConfiguration: Custom
+        encryption configuration for the destination table.
+
+        Custom encryption configuration (e.g., Cloud KMS keys) or :data:`None`
+        if using default encryption.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.destinationEncryptionConfiguration
+        """
+        prop = self._get_sub_prop("destinationEncryptionConfiguration")
+        if prop is not None:
+            prop = EncryptionConfiguration.from_api_repr(prop)
+        return prop
+
+    @destination_encryption_configuration.setter
+    def destination_encryption_configuration(self, value):
+        api_repr = value
+        if value is not None:
+            api_repr = value.to_api_repr()
+            self._set_sub_prop("destinationEncryptionConfiguration", api_repr)
+        else:
+            self._del_sub_prop("destinationEncryptionConfiguration")
+
+    @property
+    def destination_table_description(self):
+        """Union[str, None] name given to destination table.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.destinationTableProperties.description
+        """
+        prop = self._get_sub_prop("destinationTableProperties")
+        if prop is not None:
+            return prop["description"]
+
+    @destination_table_description.setter
+    def destination_table_description(self, value):
+        keys = [self._job_type, "destinationTableProperties", "description"]
+        if value is not None:
+            _helpers._set_sub_prop(self._properties, keys, value)
+        else:
+            _helpers._del_sub_prop(self._properties, keys)
+
+    @property
+    def destination_table_friendly_name(self):
+        """Union[str, None] name given to destination table.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.destinationTableProperties.friendlyName
+        """
+        prop = self._get_sub_prop("destinationTableProperties")
+        if prop is not None:
+            return prop["friendlyName"]
+
+    @destination_table_friendly_name.setter
+    def destination_table_friendly_name(self, value):
+        keys = [self._job_type, "destinationTableProperties", "friendlyName"]
+        if value is not None:
+            _helpers._set_sub_prop(self._properties, keys, value)
+        else:
+            _helpers._del_sub_prop(self._properties, keys)
+
+    @property
+    def encoding(self):
+        """google.cloud.bigquery.job.Encoding: The character encoding of the
+        data.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.encoding
+        """
+        return self._get_sub_prop("encoding")
+
+    @encoding.setter
+    def encoding(self, value):
+        self._set_sub_prop("encoding", value)
+
+    @property
+    def field_delimiter(self):
+        """str: The separator for fields in a CSV file.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.fieldDelimiter
+        """
+        return self._get_sub_prop("fieldDelimiter")
+
+    @field_delimiter.setter
+    def field_delimiter(self, value):
+        self._set_sub_prop("fieldDelimiter", value)
+
+    @property
+    def ignore_unknown_values(self):
+        """bool: Ignore extra values not represented in the table schema.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.ignoreUnknownValues
+        """
+        return self._get_sub_prop("ignoreUnknownValues")
+
+    @ignore_unknown_values.setter
+    def ignore_unknown_values(self, value):
+        self._set_sub_prop("ignoreUnknownValues", value)
+
+    @property
+    def max_bad_records(self):
+        """int: Number of invalid rows to ignore.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.maxBadRecords
+        """
+        return _helpers._int_or_none(self._get_sub_prop("maxBadRecords"))
+
+    @max_bad_records.setter
+    def max_bad_records(self, value):
+        self._set_sub_prop("maxBadRecords", value)
+
+    @property
+    def null_marker(self):
+        """str: Represents a null value (CSV only).
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.nullMarker
+        """
+        return self._get_sub_prop("nullMarker")
+
+    @null_marker.setter
+    def null_marker(self, value):
+        self._set_sub_prop("nullMarker", value)
+
+    @property
+    def quote_character(self):
+        """str: Character used to quote data sections (CSV only).
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.quote
+        """
+        return self._get_sub_prop("quote")
+
+    @quote_character.setter
+    def quote_character(self, value):
+        self._set_sub_prop("quote", value)
+
+    @property
+    def schema(self):
+        """List[google.cloud.bigquery.schema.SchemaField]: Schema of the
+        destination table.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.schema
+        """
+        schema = _helpers._get_sub_prop(self._properties, ["load", "schema", "fields"])
+        if schema is None:
+            return
+        return [SchemaField.from_api_repr(field) for field in schema]
+
+    @schema.setter
+    def schema(self, value):
+        if not all(hasattr(field, "to_api_repr") for field in value):
+            raise ValueError("Schema items must be fields")
+        _helpers._set_sub_prop(
+            self._properties,
+            ["load", "schema", "fields"],
+            [field.to_api_repr() for field in value],
+        )
+
+    @property
+    def schema_update_options(self):
+        """List[google.cloud.bigquery.job.SchemaUpdateOption]: Specifies
+        updates to the destination table schema to allow as a side effect of
+        the load job.
+        """
+        return self._get_sub_prop("schemaUpdateOptions")
+
+    @schema_update_options.setter
+    def schema_update_options(self, values):
+        self._set_sub_prop("schemaUpdateOptions", values)
+
+    @property
+    def skip_leading_rows(self):
+        """int: Number of rows to skip when reading data (CSV only).
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.skipLeadingRows
+        """
+        return _helpers._int_or_none(self._get_sub_prop("skipLeadingRows"))
+
+    @skip_leading_rows.setter
+    def skip_leading_rows(self, value):
+        self._set_sub_prop("skipLeadingRows", str(value))
+
+    @property
+    def source_format(self):
+        """google.cloud.bigquery.job.SourceFormat: File format of the data.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.sourceFormat
+        """
+        return self._get_sub_prop("sourceFormat")
+
+    @source_format.setter
+    def source_format(self, value):
+        self._set_sub_prop("sourceFormat", value)
+
+    @property
+    def time_partitioning(self):
+        """google.cloud.bigquery.table.TimePartitioning: Specifies time-based
+        partitioning for the destination table.
+        """
+        prop = self._get_sub_prop("timePartitioning")
+        if prop is not None:
+            prop = TimePartitioning.from_api_repr(prop)
+        return prop
+
+    @time_partitioning.setter
+    def time_partitioning(self, value):
+        api_repr = value
+        if value is not None:
+            api_repr = value.to_api_repr()
+            self._set_sub_prop("timePartitioning", api_repr)
+        else:
+            self._del_sub_prop("timePartitioning")
+
+    @property
+    def use_avro_logical_types(self):
+        """bool: For loads of Avro data, governs whether Avro logical types are
+        converted to their corresponding BigQuery types(e.g. TIMESTAMP) rather than
+        raw types (e.g. INTEGER).
+        """
+        return self._get_sub_prop("useAvroLogicalTypes")
+
+    @use_avro_logical_types.setter
+    def use_avro_logical_types(self, value):
+        self._set_sub_prop("useAvroLogicalTypes", bool(value))
+
+    @property
+    def write_disposition(self):
+        """google.cloud.bigquery.job.WriteDisposition: Action that occurs if
+        the destination table already exists.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.load.writeDisposition
+        """
+        return self._get_sub_prop("writeDisposition")
+
+    @write_disposition.setter
+    def write_disposition(self, value):
+        self._set_sub_prop("writeDisposition", value)
 
 
 class LoadJob(_AsyncJob):
@@ -723,10 +1244,9 @@ class LoadJob(_AsyncJob):
                    for the dataset (which requires a project).
     """
 
-    _JOB_TYPE = 'load'
+    _JOB_TYPE = "load"
 
-    def __init__(self, job_id, source_uris, destination, client,
-                 job_config=None):
+    def __init__(self, job_id, source_uris, destination, client, job_config=None):
         super(LoadJob, self).__init__(job_id, client)
 
         if job_config is None:
@@ -840,12 +1360,40 @@ class LoadJob(_AsyncJob):
         encryption configuration for the destination table.
 
         Custom encryption configuration (e.g., Cloud KMS keys)
-        or ``None`` if using default encryption.
+        or :data:`None` if using default encryption.
 
         See
         :attr:`google.cloud.bigquery.job.LoadJobConfig.destination_encryption_configuration`.
         """
         return self._configuration.destination_encryption_configuration
+
+    @property
+    def time_partitioning(self):
+        """See
+        :attr:`google.cloud.bigquery.job.LoadJobConfig.time_partitioning`.
+        """
+        return self._configuration.time_partitioning
+
+    @property
+    def use_avro_logical_types(self):
+        """See
+        :attr:`google.cloud.bigquery.job.LoadJobConfig.use_avro_logical_types`.
+        """
+        return self._configuration.use_avro_logical_types
+
+    @property
+    def clustering_fields(self):
+        """See
+        :attr:`google.cloud.bigquery.job.LoadJobConfig.clustering_fields`.
+        """
+        return self._configuration.clustering_fields
+
+    @property
+    def schema_update_options(self):
+        """See
+        :attr:`google.cloud.bigquery.job.LoadJobConfig.schema_update_options`.
+        """
+        return self._configuration.schema_update_options
 
     @property
     def input_file_bytes(self):
@@ -855,9 +1403,11 @@ class LoadJob(_AsyncJob):
         :returns: the count (None until set from the server).
         :raises: ValueError for invalid value types.
         """
-        statistics = self._properties.get('statistics')
-        if statistics is not None:
-            return int(statistics['load']['inputFileBytes'])
+        return _helpers._int_or_none(
+            _helpers._get_sub_prop(
+                self._properties, ["statistics", "load", "inputFileBytes"]
+            )
+        )
 
     @property
     def input_files(self):
@@ -866,9 +1416,11 @@ class LoadJob(_AsyncJob):
         :rtype: int, or ``NoneType``
         :returns: the count (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
-        if statistics is not None:
-            return int(statistics['load']['inputFiles'])
+        return _helpers._int_or_none(
+            _helpers._get_sub_prop(
+                self._properties, ["statistics", "load", "inputFiles"]
+            )
+        )
 
     @property
     def output_bytes(self):
@@ -877,9 +1429,11 @@ class LoadJob(_AsyncJob):
         :rtype: int, or ``NoneType``
         :returns: the count (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
-        if statistics is not None:
-            return int(statistics['load']['outputBytes'])
+        return _helpers._int_or_none(
+            _helpers._get_sub_prop(
+                self._properties, ["statistics", "load", "outputBytes"]
+            )
+        )
 
     @property
     def output_rows(self):
@@ -888,25 +1442,26 @@ class LoadJob(_AsyncJob):
         :rtype: int, or ``NoneType``
         :returns: the count (None until set from the server).
         """
-        statistics = self._properties.get('statistics')
-        if statistics is not None:
-            return int(statistics['load']['outputRows'])
+        return _helpers._int_or_none(
+            _helpers._get_sub_prop(
+                self._properties, ["statistics", "load", "outputRows"]
+            )
+        )
 
-    def _build_resource(self):
-        """Generate a resource for :meth:`begin`."""
+    def to_api_repr(self):
+        """Generate a resource for :meth:`_begin`."""
         configuration = self._configuration.to_api_repr()
         if self.source_uris is not None:
-            configuration['sourceUris'] = self.source_uris
-        configuration['destinationTable'] = self.destination.to_api_repr()
+            _helpers._set_sub_prop(
+                configuration, ["load", "sourceUris"], self.source_uris
+            )
+        _helpers._set_sub_prop(
+            configuration, ["load", "destinationTable"], self.destination.to_api_repr()
+        )
 
         return {
-            'jobReference': {
-                'projectId': self.project,
-                'jobId': self.job_id,
-            },
-            'configuration': {
-                self._JOB_TYPE: configuration,
-            },
+            "jobReference": self._properties["jobReference"],
+            "configuration": configuration,
         }
 
     def _copy_configuration_properties(self, configuration):
@@ -932,53 +1487,71 @@ class LoadJob(_AsyncJob):
         :rtype: :class:`google.cloud.bigquery.job.LoadJob`
         :returns: Job parsed from ``resource``.
         """
-        job_id, config_resource = cls._get_resource_config(resource)
+        config_resource = resource.get("configuration", {})
         config = LoadJobConfig.from_api_repr(config_resource)
-        dest_config = config_resource['destinationTable']
-        ds_ref = DatasetReference(dest_config['projectId'],
-                                  dest_config['datasetId'],)
-        destination = TableReference(ds_ref, dest_config['tableId'])
+        # A load job requires a destination table.
+        dest_config = config_resource["load"]["destinationTable"]
+        ds_ref = DatasetReference(dest_config["projectId"], dest_config["datasetId"])
+        destination = TableReference(ds_ref, dest_config["tableId"])
         # sourceUris will be absent if this is a file upload.
-        source_uris = config_resource.get('sourceUris')
-        job = cls(job_id, source_uris, destination, client, config)
+        source_uris = _helpers._get_sub_prop(config_resource, ["load", "sourceUris"])
+        job_ref = _JobReference._from_api_repr(resource["jobReference"])
+        job = cls(job_ref, source_uris, destination, client, config)
         job._set_properties(resource)
         return job
 
 
-class CopyJobConfig(object):
+class CopyJobConfig(_JobConfig):
     """Configuration options for copy jobs.
 
-    All properties in this class are optional. Values which are ``None`` ->
-    server defaults.
+    All properties in this class are optional. Values which are :data:`None` ->
+    server defaults. Set properties on the constructed configuration by using
+    the property name as the name of a keyword argument.
     """
 
-    def __init__(self):
-        self._properties = {}
+    def __init__(self, **kwargs):
+        super(CopyJobConfig, self).__init__("copy", **kwargs)
 
-    create_disposition = CreateDisposition('create_disposition',
-                                           'createDisposition')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.copy.createDisposition
-    """
+    @property
+    def create_disposition(self):
+        """google.cloud.bigquery.job.CreateDisposition: Specifies behavior
+        for creating tables.
 
-    write_disposition = WriteDisposition('write_disposition',
-                                         'writeDisposition')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.copy.writeDisposition
-    """
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.copy.createDisposition
+        """
+        return self._get_sub_prop("createDisposition")
+
+    @create_disposition.setter
+    def create_disposition(self, value):
+        self._set_sub_prop("createDisposition", value)
+
+    @property
+    def write_disposition(self):
+        """google.cloud.bigquery.job.WriteDisposition: Action that occurs if
+        the destination table already exists.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.copy.writeDisposition
+        """
+        return self._get_sub_prop("writeDisposition")
+
+    @write_disposition.setter
+    def write_disposition(self, value):
+        self._set_sub_prop("writeDisposition", value)
 
     @property
     def destination_encryption_configuration(self):
         """google.cloud.bigquery.table.EncryptionConfiguration: Custom
         encryption configuration for the destination table.
 
-        Custom encryption configuration (e.g., Cloud KMS keys) or ``None``
+        Custom encryption configuration (e.g., Cloud KMS keys) or :data:`None`
         if using default encryption.
 
         See
         https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.copy.destinationEncryptionConfiguration
         """
-        prop = self._properties.get('destinationEncryptionConfiguration')
+        prop = self._get_sub_prop("destinationEncryptionConfiguration")
         if prop is not None:
             prop = EncryptionConfiguration.from_api_repr(prop)
         return prop
@@ -988,31 +1561,7 @@ class CopyJobConfig(object):
         api_repr = value
         if value is not None:
             api_repr = value.to_api_repr()
-        self._properties['destinationEncryptionConfiguration'] = api_repr
-
-    def to_api_repr(self):
-        """Build an API representation of the copy job config.
-
-        :rtype: dict
-        :returns: A dictionary in the format used by the BigQuery API.
-        """
-        return copy.deepcopy(self._properties)
-
-    @classmethod
-    def from_api_repr(cls, resource):
-        """Factory: construct a job configuration given its API representation
-
-        :type resource: dict
-        :param resource:
-            An extract job configuration in the same representation as is
-            returned from the API.
-
-        :rtype: :class:`google.cloud.bigquery.job.CopyJobConfig`
-        :returns: Configuration parsed from ``resource``.
-        """
-        config = cls()
-        config._properties = copy.deepcopy(resource)
-        return config
+        self._set_sub_prop("destinationEncryptionConfiguration", api_repr)
 
 
 class CopyJob(_AsyncJob):
@@ -1022,7 +1571,7 @@ class CopyJob(_AsyncJob):
     :param job_id: the job's ID, within the project belonging to ``client``.
 
     :type sources: list of :class:`google.cloud.bigquery.table.TableReference`
-    :param sources: Table into which data is to be loaded.
+    :param sources: Table from which data is to be loaded.
 
     :type destination: :class:`google.cloud.bigquery.table.TableReference`
     :param destination: Table into which data is to be loaded.
@@ -1035,7 +1584,8 @@ class CopyJob(_AsyncJob):
     :param job_config:
         (Optional) Extra configuration options for the copy job.
     """
-    _JOB_TYPE = 'copy'
+
+    _JOB_TYPE = "copy"
 
     def __init__(self, job_id, sources, destination, client, job_config=None):
         super(CopyJob, self).__init__(job_id, client)
@@ -1066,7 +1616,7 @@ class CopyJob(_AsyncJob):
         """google.cloud.bigquery.table.EncryptionConfiguration: Custom
         encryption configuration for the destination table.
 
-        Custom encryption configuration (e.g., Cloud KMS keys) or ``None``
+        Custom encryption configuration (e.g., Cloud KMS keys) or :data:`None`
         if using default encryption.
 
         See
@@ -1074,31 +1624,33 @@ class CopyJob(_AsyncJob):
         """
         return self._configuration.destination_encryption_configuration
 
-    def _build_resource(self):
-        """Generate a resource for :meth:`begin`."""
+    def to_api_repr(self):
+        """Generate a resource for :meth:`_begin`."""
 
-        source_refs = [{
-            'projectId': table.project,
-            'datasetId': table.dataset_id,
-            'tableId': table.table_id,
-        } for table in self.sources]
+        source_refs = [
+            {
+                "projectId": table.project,
+                "datasetId": table.dataset_id,
+                "tableId": table.table_id,
+            }
+            for table in self.sources
+        ]
 
         configuration = self._configuration.to_api_repr()
-        configuration['sourceTables'] = source_refs
-        configuration['destinationTable'] = {
-            'projectId': self.destination.project,
-            'datasetId': self.destination.dataset_id,
-            'tableId': self.destination.table_id,
-        }
+        _helpers._set_sub_prop(configuration, ["copy", "sourceTables"], source_refs)
+        _helpers._set_sub_prop(
+            configuration,
+            ["copy", "destinationTable"],
+            {
+                "projectId": self.destination.project,
+                "datasetId": self.destination.dataset_id,
+                "tableId": self.destination.table_id,
+            },
+        )
 
         return {
-            'jobReference': {
-                'projectId': self.project,
-                'jobId': self.job_id,
-            },
-            'configuration': {
-                self._JOB_TYPE: configuration,
-            },
+            "jobReference": self._properties["jobReference"],
+            "configuration": configuration,
         }
 
     def _copy_configuration_properties(self, configuration):
@@ -1126,81 +1678,87 @@ class CopyJob(_AsyncJob):
         """
         job_id, config_resource = cls._get_resource_config(resource)
         config = CopyJobConfig.from_api_repr(config_resource)
-        destination = TableReference.from_api_repr(
-            config_resource['destinationTable'])
+        # Copy required fields to the job.
+        copy_resource = config_resource["copy"]
+        destination = TableReference.from_api_repr(copy_resource["destinationTable"])
         sources = []
-        source_configs = config_resource.get('sourceTables')
+        source_configs = copy_resource.get("sourceTables")
         if source_configs is None:
-            single = config_resource.get('sourceTable')
+            single = copy_resource.get("sourceTable")
             if single is None:
-                raise KeyError(
-                    "Resource missing 'sourceTables' / 'sourceTable'")
+                raise KeyError("Resource missing 'sourceTables' / 'sourceTable'")
             source_configs = [single]
         for source_config in source_configs:
             table_ref = TableReference.from_api_repr(source_config)
             sources.append(table_ref)
-        job = cls(
-            job_id, sources, destination, client=client, job_config=config)
+        job = cls(job_id, sources, destination, client=client, job_config=config)
         job._set_properties(resource)
         return job
 
 
-class ExtractJobConfig(object):
+class ExtractJobConfig(_JobConfig):
     """Configuration options for extract jobs.
 
-    All properties in this class are optional. Values which are ``None`` ->
-    server defaults.
+    All properties in this class are optional. Values which are :data:`None` ->
+    server defaults. Set properties on the constructed configuration by using
+    the property name as the name of a keyword argument.
     """
 
-    def __init__(self):
-        self._properties = {}
+    def __init__(self, **kwargs):
+        super(ExtractJobConfig, self).__init__("extract", **kwargs)
 
-    compression = Compression('compression', 'compression')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.compression
-    """
+    @property
+    def compression(self):
+        """google.cloud.bigquery.job.Compression: Compression type to use for
+        exported files.
 
-    destination_format = DestinationFormat(
-        'destination_format', 'destinationFormat')
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.destinationFormat
-    """
-
-    field_delimiter = _TypedApiResourceProperty(
-        'field_delimiter', 'fieldDelimiter', six.string_types)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.fieldDelimiter
-    """
-
-    print_header = _TypedApiResourceProperty(
-        'print_header', 'printHeader', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.printHeader
-    """
-
-    def to_api_repr(self):
-        """Build an API representation of the extract job config.
-
-        :rtype: dict
-        :returns: A dictionary in the format used by the BigQuery API.
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.compression
         """
-        return copy.deepcopy(self._properties)
+        return self._get_sub_prop("compression")
 
-    @classmethod
-    def from_api_repr(cls, resource):
-        """Factory: construct a job configuration given its API representation
+    @compression.setter
+    def compression(self, value):
+        self._set_sub_prop("compression", value)
 
-        :type resource: dict
-        :param resource:
-            An extract job configuration in the same representation as is
-            returned from the API.
+    @property
+    def destination_format(self):
+        """google.cloud.bigquery.job.DestinationFormat: Exported file format.
 
-        :rtype: :class:`google.cloud.bigquery.job.ExtractJobConfig`
-        :returns: Configuration parsed from ``resource``.
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.destinationFormat
         """
-        config = cls()
-        config._properties = copy.deepcopy(resource)
-        return config
+        return self._get_sub_prop("destinationFormat")
+
+    @destination_format.setter
+    def destination_format(self, value):
+        self._set_sub_prop("destinationFormat", value)
+
+    @property
+    def field_delimiter(self):
+        """str: Delimiter to use between fields in the exported data.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.fieldDelimiter
+        """
+        return self._get_sub_prop("fieldDelimiter")
+
+    @field_delimiter.setter
+    def field_delimiter(self, value):
+        self._set_sub_prop("fieldDelimiter", value)
+
+    @property
+    def print_header(self):
+        """bool: Print a header row in the exported data.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.extract.printHeader
+        """
+        return self._get_sub_prop("printHeader")
+
+    @print_header.setter
+    def print_header(self, value):
+        self._set_sub_prop("printHeader", value)
 
 
 class ExtractJob(_AsyncJob):
@@ -1225,10 +1783,10 @@ class ExtractJob(_AsyncJob):
     :param job_config:
         (Optional) Extra configuration options for the extract job.
     """
-    _JOB_TYPE = 'extract'
 
-    def __init__(
-            self, job_id, source, destination_uris, client, job_config=None):
+    _JOB_TYPE = "extract"
+
+    def __init__(self, job_id, source, destination_uris, client, job_config=None):
         super(ExtractJob, self).__init__(job_id, client)
 
         if job_config is None:
@@ -1273,39 +1831,37 @@ class ExtractJob(_AsyncJob):
         See:
         https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#statistics.extract.destinationUriFileCounts
 
-        :rtype: int or None
-        :returns: number of DML rows affectd by the job, or None if job is not
-                  yet complete.
+        Returns:
+            a list of integer counts, each representing the number of files
+            per destination URI or URI pattern specified in the extract
+            configuration. These values will be in the same order as the URIs
+            specified in the 'destinationUris' field.  Returns None if job is
+            not yet complete.
         """
-        result = self._job_statistics().get('destinationUriFileCounts')
-        if result is not None:
-            result = int(result)
-        return result
+        counts = self._job_statistics().get("destinationUriFileCounts")
+        if counts is not None:
+            return [int(count) for count in counts]
+        return None
 
-    def _build_resource(self):
-        """Generate a resource for :meth:`begin`."""
+    def to_api_repr(self):
+        """Generate a resource for :meth:`_begin`."""
 
         source_ref = {
-            'projectId': self.source.project,
-            'datasetId': self.source.dataset_id,
-            'tableId': self.source.table_id,
+            "projectId": self.source.project,
+            "datasetId": self.source.dataset_id,
+            "tableId": self.source.table_id,
         }
 
         configuration = self._configuration.to_api_repr()
-        configuration['sourceTable'] = source_ref
-        configuration['destinationUris'] = self.destination_uris
+        _helpers._set_sub_prop(configuration, ["extract", "sourceTable"], source_ref)
+        _helpers._set_sub_prop(
+            configuration, ["extract", "destinationUris"], self.destination_uris
+        )
 
-        resource = {
-            'jobReference': {
-                'projectId': self.project,
-                'jobId': self.job_id,
-            },
-            'configuration': {
-                self._JOB_TYPE: configuration,
-            },
+        return {
+            "jobReference": self._properties["jobReference"],
+            "configuration": configuration,
         }
-
-        return resource
 
     def _copy_configuration_properties(self, configuration):
         """Helper:  assign subclass configuration properties in cleaned."""
@@ -1332,30 +1888,28 @@ class ExtractJob(_AsyncJob):
         """
         job_id, config_resource = cls._get_resource_config(resource)
         config = ExtractJobConfig.from_api_repr(config_resource)
-        source_config = config_resource['sourceTable']
+        source_config = _helpers._get_sub_prop(
+            config_resource, ["extract", "sourceTable"]
+        )
         dataset = DatasetReference(
-            source_config['projectId'], source_config['datasetId'])
-        source = dataset.table(source_config['tableId'])
-        destination_uris = config_resource['destinationUris']
+            source_config["projectId"], source_config["datasetId"]
+        )
+        source = dataset.table(source_config["tableId"])
+        destination_uris = _helpers._get_sub_prop(
+            config_resource, ["extract", "destinationUris"]
+        )
 
-        job = cls(
-            job_id, source, destination_uris, client=client, job_config=config)
+        job = cls(job_id, source, destination_uris, client=client, job_config=config)
         job._set_properties(resource)
         return job
 
 
 def _from_api_repr_query_parameters(resource):
-    return [
-        _query_param_from_api_repr(mapping)
-        for mapping in resource
-    ]
+    return [_query_param_from_api_repr(mapping) for mapping in resource]
 
 
 def _to_api_repr_query_parameters(value):
-    return [
-        query_parameter.to_api_repr()
-        for query_parameter in value
-    ]
+    return [query_parameter.to_api_repr() for query_parameter in value]
 
 
 def _from_api_repr_udf_resources(resource):
@@ -1367,10 +1921,7 @@ def _from_api_repr_udf_resources(resource):
 
 
 def _to_api_repr_udf_resources(value):
-    return [
-        {udf_resource.udf_type: udf_resource.value}
-        for udf_resource in value
-    ]
+    return [{udf_resource.udf_type: udf_resource.value} for udf_resource in value]
 
 
 def _from_api_repr_table_defs(resource):
@@ -1381,28 +1932,29 @@ def _to_api_repr_table_defs(value):
     return {k: ExternalConfig.to_api_repr(v) for k, v in value.items()}
 
 
-class QueryJobConfig(object):
+class QueryJobConfig(_JobConfig):
     """Configuration options for query jobs.
 
-    All properties in this class are optional. Values which are ``None`` ->
-    server defaults.
+    All properties in this class are optional. Values which are :data:`None` ->
+    server defaults. Set properties on the constructed configuration by using
+    the property name as the name of a keyword argument.
     """
 
-    def __init__(self):
-        self._properties = {}
+    def __init__(self, **kwargs):
+        super(QueryJobConfig, self).__init__("query", **kwargs)
 
     @property
     def destination_encryption_configuration(self):
         """google.cloud.bigquery.table.EncryptionConfiguration: Custom
         encryption configuration for the destination table.
 
-        Custom encryption configuration (e.g., Cloud KMS keys) or ``None``
+        Custom encryption configuration (e.g., Cloud KMS keys) or :data:`None`
         if using default encryption.
 
         See
         https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.query.destinationEncryptionConfiguration
         """
-        prop = self._properties.get('destinationEncryptionConfiguration')
+        prop = self._get_sub_prop("destinationEncryptionConfiguration")
         if prop is not None:
             prop = EncryptionConfiguration.from_api_repr(prop)
         return prop
@@ -1412,133 +1964,142 @@ class QueryJobConfig(object):
         api_repr = value
         if value is not None:
             api_repr = value.to_api_repr()
-        self._properties['destinationEncryptionConfiguration'] = api_repr
+        self._set_sub_prop("destinationEncryptionConfiguration", api_repr)
 
-    def to_api_repr(self):
-        """Build an API representation of the query job config.
+    @property
+    def allow_large_results(self):
+        """bool: Allow large query results tables (legacy SQL, only)
 
-        Returns:
-            dict: A dictionary in the format used by the BigQuery API.
+        See
+        https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.allowLargeResults
         """
-        resource = copy.deepcopy(self._properties)
+        return self._get_sub_prop("allowLargeResults")
 
-        # Query parameters have an addition property associated with them
-        # to indicate if the query is using named or positional parameters.
-        query_parameters = resource.get('queryParameters')
-        if query_parameters:
-            if query_parameters[0].get('name') is None:
-                resource['parameterMode'] = 'POSITIONAL'
-            else:
-                resource['parameterMode'] = 'NAMED'
+    @allow_large_results.setter
+    def allow_large_results(self, value):
+        self._set_sub_prop("allowLargeResults", value)
 
-        return resource
+    @property
+    def create_disposition(self):
+        """google.cloud.bigquery.job.CreateDisposition: Specifies behavior
+        for creating tables.
 
-    @classmethod
-    def from_api_repr(cls, resource):
-        """Factory: construct a job configuration given its API representation
-
-        Args:
-            resource (dict):
-                A query job configuration in the same representation as is
-                returned from the API.
-
-        Returns:
-            ~google.cloud.bigquery.job.QueryJobConfig:
-                Configuration parsed from ``resource``.
+        See
+        https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.createDisposition
         """
-        config = cls()
-        config._properties = copy.deepcopy(resource)
+        return self._get_sub_prop("createDisposition")
 
-        return config
-
-    allow_large_results = _TypedApiResourceProperty(
-        'allow_large_results', 'allowLargeResults', bool)
-    """bool: Allow large query results tables (legacy SQL, only)
-
-    See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.allowLargeResults
-    """
-
-    create_disposition = CreateDisposition(
-        'create_disposition', 'createDisposition')
-    """See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.createDisposition
-    """
+    @create_disposition.setter
+    def create_disposition(self, value):
+        self._set_sub_prop("createDisposition", value)
 
     @property
     def default_dataset(self):
         """google.cloud.bigquery.dataset.DatasetReference: the default dataset
-        to use for unqualified table names in the query or ``None`` if not set.
+        to use for unqualified table names in the query or :data:`None` if not
+        set.
 
         See
         https://g.co/cloud/bigquery/docs/reference/v2/jobs#configuration.query.defaultDataset
         """
-        prop = self._properties.get('defaultDataset')
+        prop = self._get_sub_prop("defaultDataset")
         if prop is not None:
             prop = DatasetReference.from_api_repr(prop)
         return prop
 
     @default_dataset.setter
     def default_dataset(self, value):
-        self._properties['defaultDataset'] = value.to_api_repr()
+        resource = None
+        if value is not None:
+            resource = value.to_api_repr()
+        self._set_sub_prop("defaultDataset", resource)
 
     @property
     def destination(self):
         """google.cloud.bigquery.table.TableReference: table where results are
-        written or ``None`` if not set.
+        written or :data:`None` if not set.
 
         See
         https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.destinationTable
         """
-        prop = self._properties.get('destinationTable')
+        prop = self._get_sub_prop("destinationTable")
         if prop is not None:
             prop = TableReference.from_api_repr(prop)
         return prop
 
     @destination.setter
     def destination(self, value):
-        self._properties['destinationTable'] = value.to_api_repr()
+        resource = None
+        if value is not None:
+            resource = value.to_api_repr()
+        self._set_sub_prop("destinationTable", resource)
 
-    dry_run = _TypedApiResourceProperty('dry_run', 'dryRun', bool)
-    """
-    bool: ``True`` if this query should be a dry run to estimate costs.
+    @property
+    def dry_run(self):
+        """bool: :data:`True` if this query should be a dry run to estimate
+        costs.
 
-    See
-    https://g.co/cloud/bigquery/docs/reference/v2/jobs#configuration.dryRun
-    """
+        See
+        https://g.co/cloud/bigquery/docs/reference/v2/jobs#configuration.dryRun
+        """
+        return self._properties.get("dryRun")
 
-    flatten_results = _TypedApiResourceProperty(
-        'flatten_results', 'flattenResults', bool)
-    """See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.flattenResults
-    """
+    @dry_run.setter
+    def dry_run(self, value):
+        self._properties["dryRun"] = value
 
-    maximum_billing_tier = _TypedApiResourceProperty(
-        'maximum_billing_tier', 'maximumBillingTier', int)
-    """See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.maximumBillingTier
-    """
+    @property
+    def flatten_results(self):
+        """bool: Flatten nested/repeated fields in results. (Legacy SQL only)
+
+        See
+        https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.flattenResults
+        """
+        return self._get_sub_prop("flattenResults")
+
+    @flatten_results.setter
+    def flatten_results(self, value):
+        self._set_sub_prop("flattenResults", value)
+
+    @property
+    def maximum_billing_tier(self):
+        """int: Deprecated. Changes the billing tier to allow high-compute
+        queries.
+
+        See
+        https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.maximumBillingTier
+        """
+        return self._get_sub_prop("maximumBillingTier")
+
+    @maximum_billing_tier.setter
+    def maximum_billing_tier(self, value):
+        self._set_sub_prop("maximumBillingTier", value)
 
     @property
     def maximum_bytes_billed(self):
-        """int: Maximum bytes to be billed for this job or ``None`` if not set.
+        """int: Maximum bytes to be billed for this job or :data:`None` if not set.
 
         See
         https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.maximumBytesBilled
         """
-        prop = self._properties.get('maximumBytesBilled')
-        if prop is not None:
-            prop = int(prop)
-        return prop
+        return _helpers._int_or_none(self._get_sub_prop("maximumBytesBilled"))
 
     @maximum_bytes_billed.setter
     def maximum_bytes_billed(self, value):
-        self._properties['maximumBytesBilled'] = str(value)
+        self._set_sub_prop("maximumBytesBilled", str(value))
 
-    priority = QueryPriority('priority', 'priority')
-    """See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.priority
-    """
+    @property
+    def priority(self):
+        """google.cloud.bigquery.job.QueryPriority: Priority of the query.
+
+        See
+        https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.priority
+        """
+        return self._get_sub_prop("priority")
+
+    @priority.setter
+    def priority(self, value):
+        self._set_sub_prop("priority", value)
 
     @property
     def query_parameters(self):
@@ -1550,13 +2111,12 @@ class QueryJobConfig(object):
         See:
         https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.queryParameters
         """
-        prop = self._properties.get('queryParameters', [])
+        prop = self._get_sub_prop("queryParameters", default=[])
         return _from_api_repr_query_parameters(prop)
 
     @query_parameters.setter
     def query_parameters(self, values):
-        self._properties['queryParameters'] = _to_api_repr_query_parameters(
-            values)
+        self._set_sub_prop("queryParameters", _to_api_repr_query_parameters(values))
 
     @property
     def udf_resources(self):
@@ -1566,51 +2126,147 @@ class QueryJobConfig(object):
         See:
         https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.userDefinedFunctionResources
         """
-        prop = self._properties.get('userDefinedFunctionResources', [])
+        prop = self._get_sub_prop("userDefinedFunctionResources", default=[])
         return _from_api_repr_udf_resources(prop)
 
     @udf_resources.setter
     def udf_resources(self, values):
-        self._properties['userDefinedFunctionResources'] = (
-            _to_api_repr_udf_resources(values))
+        self._set_sub_prop(
+            "userDefinedFunctionResources", _to_api_repr_udf_resources(values)
+        )
 
-    use_legacy_sql = _TypedApiResourceProperty(
-        'use_legacy_sql', 'useLegacySql', bool)
-    """See
-    https://g.co/cloud/bigquery/docs/reference/v2/jobs#configuration.query.useLegacySql
-    """
+    @property
+    def use_legacy_sql(self):
+        """bool: Use legacy SQL syntax.
 
-    use_query_cache = _TypedApiResourceProperty(
-        'use_query_cache', 'useQueryCache', bool)
-    """See
-    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.query.useQueryCache
-    """
+        See
+        https://g.co/cloud/bigquery/docs/reference/v2/jobs#configuration.query.useLegacySql
+        """
+        return self._get_sub_prop("useLegacySql")
 
-    write_disposition = WriteDisposition(
-        'write_disposition', 'writeDisposition')
-    """See
-    https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.writeDisposition
-    """
+    @use_legacy_sql.setter
+    def use_legacy_sql(self, value):
+        self._set_sub_prop("useLegacySql", value)
+
+    @property
+    def use_query_cache(self):
+        """bool: Look for the query result in the cache.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.query.useQueryCache
+        """
+        return self._get_sub_prop("useQueryCache")
+
+    @use_query_cache.setter
+    def use_query_cache(self, value):
+        self._set_sub_prop("useQueryCache", value)
+
+    @property
+    def write_disposition(self):
+        """google.cloud.bigquery.job.WriteDisposition: Action that occurs if
+        the destination table already exists.
+
+        See
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#configuration.query.writeDisposition
+        """
+        return self._get_sub_prop("writeDisposition")
+
+    @write_disposition.setter
+    def write_disposition(self, value):
+        self._set_sub_prop("writeDisposition", value)
 
     @property
     def table_definitions(self):
         """Dict[str, google.cloud.bigquery.external_config.ExternalConfig]:
-        Definitions for external tables or ``None`` if not set.
+        Definitions for external tables or :data:`None` if not set.
 
         See
         https://g.co/cloud/bigquery/docs/reference/rest/v2/jobs#configuration.query.tableDefinitions
         """
-        prop = self._properties.get('tableDefinitions')
+        prop = self._get_sub_prop("tableDefinitions")
         if prop is not None:
             prop = _from_api_repr_table_defs(prop)
         return prop
 
     @table_definitions.setter
     def table_definitions(self, values):
-        self._properties['tableDefinitions'] = _to_api_repr_table_defs(values)
+        self._set_sub_prop("tableDefinitions", _to_api_repr_table_defs(values))
 
-    _maximum_billing_tier = None
-    _maximum_bytes_billed = None
+    @property
+    def time_partitioning(self):
+        """google.cloud.bigquery.table.TimePartitioning: Specifies time-based
+        partitioning for the destination table.
+        """
+        prop = self._get_sub_prop("timePartitioning")
+        if prop is not None:
+            prop = TimePartitioning.from_api_repr(prop)
+        return prop
+
+    @time_partitioning.setter
+    def time_partitioning(self, value):
+        api_repr = value
+        if value is not None:
+            api_repr = value.to_api_repr()
+        self._set_sub_prop("timePartitioning", api_repr)
+
+    @property
+    def clustering_fields(self):
+        """Union[List[str], None]: Fields defining clustering for the table
+
+        (Defaults to :data:`None`).
+
+        Clustering fields are immutable after table creation.
+
+        .. note::
+
+           As of 2018-06-29, clustering fields cannot be set on a table
+           which does not also have time partioning defined.
+        """
+        prop = self._get_sub_prop("clustering")
+        if prop is not None:
+            return list(prop.get("fields", ()))
+
+    @clustering_fields.setter
+    def clustering_fields(self, value):
+        """Union[List[str], None]: Fields defining clustering for the table
+
+        (Defaults to :data:`None`).
+        """
+        if value is not None:
+            self._set_sub_prop("clustering", {"fields": value})
+        else:
+            self._del_sub_prop("clustering")
+
+    @property
+    def schema_update_options(self):
+        """List[google.cloud.bigquery.job.SchemaUpdateOption]: Specifies
+        updates to the destination table schema to allow as a side effect of
+        the query job.
+        """
+        return self._get_sub_prop("schemaUpdateOptions")
+
+    @schema_update_options.setter
+    def schema_update_options(self, values):
+        self._set_sub_prop("schemaUpdateOptions", values)
+
+    def to_api_repr(self):
+        """Build an API representation of the query job config.
+
+        Returns:
+            dict: A dictionary in the format used by the BigQuery API.
+        """
+        resource = copy.deepcopy(self._properties)
+
+        # Query parameters have an addition property associated with them
+        # to indicate if the query is using named or positional parameters.
+        query_parameters = resource["query"].get("queryParameters")
+        if query_parameters:
+            if query_parameters[0].get("name") is None:
+                resource["query"]["parameterMode"] = "POSITIONAL"
+            else:
+                resource["query"]["parameterMode"] = "NAMED"
+
+        return resource
 
 
 class QueryJob(_AsyncJob):
@@ -1630,8 +2286,9 @@ class QueryJob(_AsyncJob):
     :param job_config:
         (Optional) Extra configuration options for the query job.
     """
-    _JOB_TYPE = 'query'
-    _UDF_KEY = 'userDefinedFunctionResources'
+
+    _JOB_TYPE = "query"
+    _UDF_KEY = "userDefinedFunctionResources"
 
     def __init__(self, job_id, query, client, job_config=None):
         super(QueryJob, self).__init__(job_id, client)
@@ -1679,7 +2336,7 @@ class QueryJob(_AsyncJob):
         """google.cloud.bigquery.table.EncryptionConfiguration: Custom
         encryption configuration for the destination table.
 
-        Custom encryption configuration (e.g., Cloud KMS keys) or ``None``
+        Custom encryption configuration (e.g., Cloud KMS keys) or :data:`None`
         if using default encryption.
 
         See
@@ -1764,55 +2421,43 @@ class QueryJob(_AsyncJob):
         """
         return self._configuration.table_definitions
 
-    def _build_resource(self):
-        """Generate a resource for :meth:`begin`."""
+    @property
+    def time_partitioning(self):
+        """See
+        :attr:`google.cloud.bigquery.job.QueryJobConfig.time_partitioning`.
+        """
+        return self._configuration.time_partitioning
+
+    @property
+    def clustering_fields(self):
+        """See
+        :attr:`google.cloud.bigquery.job.QueryJobConfig.clustering_fields`.
+        """
+        return self._configuration.clustering_fields
+
+    @property
+    def schema_update_options(self):
+        """See
+        :attr:`google.cloud.bigquery.job.QueryJobConfig.schema_update_options`.
+        """
+        return self._configuration.schema_update_options
+
+    def to_api_repr(self):
+        """Generate a resource for :meth:`_begin`."""
         configuration = self._configuration.to_api_repr()
 
         resource = {
-            'jobReference': {
-                'projectId': self.project,
-                'jobId': self.job_id,
-            },
-            'configuration': {
-                self._JOB_TYPE: configuration,
-            },
+            "jobReference": self._properties["jobReference"],
+            "configuration": configuration,
         }
-
-        # The dryRun property only applies to query jobs, but it is defined at
-        # a level higher up. We need to remove it from the query config.
-        if 'dryRun' in configuration:
-            dry_run = configuration['dryRun']
-            del configuration['dryRun']
-            resource['configuration']['dryRun'] = dry_run
-
-        configuration['query'] = self.query
+        configuration["query"]["query"] = self.query
 
         return resource
 
-    def _scrub_local_properties(self, cleaned):
-        """Helper:  handle subclass properties in cleaned.
-
-        .. note:
-
-           This method assumes that the project found in the resource matches
-           the client's project.
-        """
-        configuration = cleaned['configuration']['query']
-        self.query = configuration['query']
-
-        # The dryRun property only applies to query jobs, but it is defined at
-        # a level higher up. We need to copy it to the query config.
-        self._configuration.dry_run = cleaned['configuration'].get('dryRun')
-
     def _copy_configuration_properties(self, configuration):
         """Helper:  assign subclass configuration properties in cleaned."""
-        # The dryRun property only applies to query jobs, but it is defined at
-        # a level higher up. We need to copy it to the query config.
-        # It should already be correctly set by the _scrub_local_properties()
-        # method.
-        dry_run = self.dry_run
-        self._configuration = QueryJobConfig.from_api_repr(configuration)
-        self._configuration.dry_run = dry_run
+        self._configuration._properties = copy.deepcopy(configuration)
+        self.query = _helpers._get_sub_prop(configuration, ["query", "query"])
 
     @classmethod
     def from_api_repr(cls, resource, client):
@@ -1829,7 +2474,7 @@ class QueryJob(_AsyncJob):
         :returns: Job parsed from ``resource``.
         """
         job_id, config = cls._get_resource_config(resource)
-        query = config['query']
+        query = config["query"]["query"]
         job = cls(job_id, query, client=client)
         job._set_properties(resource)
         return job
@@ -1845,8 +2490,16 @@ class QueryJob(_AsyncJob):
         :returns: mappings describing the query plan, or an empty list
                   if the query has not yet completed.
         """
-        plan_entries = self._job_statistics().get('queryPlan', ())
+        plan_entries = self._job_statistics().get("queryPlan", ())
         return [QueryPlanEntry.from_api_repr(entry) for entry in plan_entries]
+
+    @property
+    def timeline(self):
+        """List(TimelineEntry): Return the query execution timeline
+        from job statistics.
+        """
+        raw = self._job_statistics().get("timeline", ())
+        return [TimelineEntry.from_api_repr(entry) for entry in raw]
 
     @property
     def total_bytes_processed(self):
@@ -1859,7 +2512,7 @@ class QueryJob(_AsyncJob):
         :returns: total bytes processed by the job, or None if job is not
                   yet complete.
         """
-        result = self._job_statistics().get('totalBytesProcessed')
+        result = self._job_statistics().get("totalBytesProcessed")
         if result is not None:
             result = int(result)
         return result
@@ -1875,7 +2528,7 @@ class QueryJob(_AsyncJob):
         :returns: total bytes processed by the job, or None if job is not
                   yet complete.
         """
-        result = self._job_statistics().get('totalBytesBilled')
+        result = self._job_statistics().get("totalBytesBilled")
         if result is not None:
             result = int(result)
         return result
@@ -1891,7 +2544,7 @@ class QueryJob(_AsyncJob):
         :returns: billing tier used by the job, or None if job is not
                   yet complete.
         """
-        return self._job_statistics().get('billingTier')
+        return self._job_statistics().get("billingTier")
 
     @property
     def cache_hit(self):
@@ -1904,7 +2557,30 @@ class QueryJob(_AsyncJob):
         :returns: whether the query results were returned from cache, or None
                   if job is not yet complete.
         """
-        return self._job_statistics().get('cacheHit')
+        return self._job_statistics().get("cacheHit")
+
+    @property
+    def ddl_operation_performed(self):
+        """Optional[str]: Return the DDL operation performed.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#statistics.query.ddlOperationPerformed
+
+        """
+        return self._job_statistics().get("ddlOperationPerformed")
+
+    @property
+    def ddl_target_table(self):
+        """Optional[TableReference]: Return the DDL target table, present
+            for CREATE/DROP TABLE/VIEW queries.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#statistics.query.ddlTargetTable
+        """
+        prop = self._job_statistics().get("ddlTargetTable")
+        if prop is not None:
+            prop = TableReference.from_api_repr(prop)
+        return prop
 
     @property
     def num_dml_affected_rows(self):
@@ -1917,10 +2593,15 @@ class QueryJob(_AsyncJob):
         :returns: number of DML rows affected by the job, or None if job is not
                   yet complete.
         """
-        result = self._job_statistics().get('numDmlAffectedRows')
+        result = self._job_statistics().get("numDmlAffectedRows")
         if result is not None:
             result = int(result)
         return result
+
+    @property
+    def slot_millis(self):
+        """Union[int, None]: Slot-milliseconds used by this query job."""
+        return _helpers._int_or_none(self._job_statistics().get("totalSlotMs"))
 
     @property
     def statement_type(self):
@@ -1933,7 +2614,7 @@ class QueryJob(_AsyncJob):
         :returns: type of statement used by the job, or None if job is not
                   yet complete.
         """
-        return self._job_statistics().get('statementType')
+        return self._job_statistics().get("statementType")
 
     @property
     def referenced_tables(self):
@@ -1949,17 +2630,17 @@ class QueryJob(_AsyncJob):
         tables = []
         datasets_by_project_name = {}
 
-        for table in self._job_statistics().get('referencedTables', ()):
+        for table in self._job_statistics().get("referencedTables", ()):
 
-            t_project = table['projectId']
+            t_project = table["projectId"]
 
-            ds_id = table['datasetId']
+            ds_id = table["datasetId"]
             t_dataset = datasets_by_project_name.get((t_project, ds_id))
             if t_dataset is None:
                 t_dataset = DatasetReference(t_project, ds_id)
                 datasets_by_project_name[(t_project, ds_id)] = t_dataset
 
-            t_name = table['tableId']
+            t_name = table["tableId"]
             tables.append(t_dataset.table(t_name))
 
         return tables
@@ -1980,15 +2661,14 @@ class QueryJob(_AsyncJob):
                   not yet completed.
         """
         parameters = []
-        undeclared = self._job_statistics().get(
-            'undeclaredQueryParameters', ())
+        undeclared = self._job_statistics().get("undeclaredQueryParameters", ())
 
         for parameter in undeclared:
-            p_type = parameter['parameterType']
+            p_type = parameter["parameterType"]
 
-            if 'arrayType' in p_type:
+            if "arrayType" in p_type:
                 klass = ArrayQueryParameter
-            elif 'structTypes' in p_type:
+            elif "structTypes" in p_type:
                 klass = StructQueryParameter
             else:
                 klass = ScalarQueryParameter
@@ -1996,6 +2676,22 @@ class QueryJob(_AsyncJob):
             parameters.append(klass.from_api_repr(parameter))
 
         return parameters
+
+    @property
+    def estimated_bytes_processed(self):
+        """Return the estimated number of bytes processed by the query.
+
+        See:
+        https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs#statistics.query.estimatedBytesProcessed
+
+        :rtype: int or None
+        :returns: number of DML rows affected by the job, or None if job is not
+                  yet complete.
+        """
+        result = self._job_statistics().get("estimatedBytesProcessed")
+        if result is not None:
+            result = int(result)
+        return result
 
     def done(self, retry=DEFAULT_RETRY):
         """Refresh the job and checks if it is complete.
@@ -2020,8 +2716,12 @@ class QueryJob(_AsyncJob):
         # change once complete.
         if self.state != _DONE_STATE:
             self._query_results = self._client._get_query_results(
-                self.job_id, retry,
-                project=self.project, timeout_ms=timeout_ms)
+                self.job_id,
+                retry,
+                project=self.project,
+                timeout_ms=timeout_ms,
+                location=self.location,
+            )
 
             # Only reload the job once we know the query is complete.
             # This will ensure that fields such as the destination table are
@@ -2063,11 +2763,20 @@ class QueryJob(_AsyncJob):
         # Return an iterator instead of returning the job.
         if not self._query_results:
             self._query_results = self._client._get_query_results(
-                self.job_id, retry, project=self.project)
+                self.job_id, retry, project=self.project, location=self.location
+            )
+
+        # If the query job is complete but there are no query results, this was
+        # special job, such as a DDL query. Return an empty result set to
+        # indicate success and avoid calling tabledata.list on a table which
+        # can't be read (such as a view table).
+        if self._query_results.total_rows is None:
+            return _EmptyRowIterator()
+
         schema = self._query_results.schema
-        dest_table = self.destination
-        return self._client.list_rows(dest_table, selected_fields=schema,
-                                      retry=retry)
+        dest_table_ref = self.destination
+        dest_table = Table(dest_table_ref, schema=schema)
+        return self._client.list_rows(dest_table, retry=retry)
 
     def to_dataframe(self):
         """Return a pandas DataFrame from a QueryJob
@@ -2095,6 +2804,7 @@ class QueryPlanEntryStep(object):
     :type substeps:
     :param substeps: names of substeps
     """
+
     def __init__(self, kind, substeps):
         self.kind = kind
         self.substeps = list(substeps)
@@ -2109,10 +2819,7 @@ class QueryPlanEntryStep(object):
         :rtype: :class:`QueryPlanEntryStep`
         :return: new instance built from the resource
         """
-        return cls(
-            kind=resource.get('kind'),
-            substeps=resource.get('substeps', ()),
-        )
+        return cls(kind=resource.get("kind"), substeps=resource.get("substeps", ()))
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -2121,112 +2828,323 @@ class QueryPlanEntryStep(object):
 
 
 class QueryPlanEntry(object):
-    """Map a single entry in a query plan.
+    """QueryPlanEntry represents a single stage of a query execution plan.
 
-    :type name: str
-    :param name: name of the entry
+    See
+    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs
+    for the underlying API representation within query statistics.
 
-    :type entry_id: int
-    :param entry_id: ID of the entry
-
-    :type wait_ratio_avg: float
-    :param wait_ratio_avg: average wait ratio
-
-    :type wait_ratio_max: float
-    :param wait_ratio_max: maximum wait ratio
-
-    :type read_ratio_avg: float
-    :param read_ratio_avg: average read ratio
-
-    :type read_ratio_max: float
-    :param read_ratio_max: maximum read ratio
-
-    :type compute_ratio_avg: float
-    :param compute_ratio_avg: average compute ratio
-
-    :type compute_ratio_max: float
-    :param compute_ratio_max: maximum compute ratio
-
-    :type write_ratio_avg: float
-    :param write_ratio_avg: average write ratio
-
-    :type write_ratio_max: float
-    :param write_ratio_max: maximum write ratio
-
-    :type records_read: int
-    :param records_read: number of records read
-
-    :type records_written: int
-    :param records_written: number of records written
-
-    :type status: str
-    :param status: entry status
-
-    :type steps: List(QueryPlanEntryStep)
-    :param steps: steps in the entry
     """
-    def __init__(self,
-                 name,
-                 entry_id,
-                 wait_ratio_avg,
-                 wait_ratio_max,
-                 read_ratio_avg,
-                 read_ratio_max,
-                 compute_ratio_avg,
-                 compute_ratio_max,
-                 write_ratio_avg,
-                 write_ratio_max,
-                 records_read,
-                 records_written,
-                 status,
-                 steps):
-        self.name = name
-        self.entry_id = entry_id
-        self.wait_ratio_avg = wait_ratio_avg
-        self.wait_ratio_max = wait_ratio_max
-        self.read_ratio_avg = read_ratio_avg
-        self.read_ratio_max = read_ratio_max
-        self.compute_ratio_avg = compute_ratio_avg
-        self.compute_ratio_max = compute_ratio_max
-        self.write_ratio_avg = write_ratio_avg
-        self.write_ratio_max = write_ratio_max
-        self.records_read = records_read
-        self.records_written = records_written
-        self.status = status
-        self.steps = steps
+
+    def __init__(self):
+        self._properties = {}
 
     @classmethod
     def from_api_repr(cls, resource):
         """Factory: construct instance from the JSON repr.
 
-        :type resource: dict
-        :param resource: JSON representation of the entry
+        Args:
+            resource(Dict[str: object]):
+                ExplainQueryStage representation returned from API
 
-        :rtype: :class:`QueryPlanEntry`
-        :return: new instance built from the resource
+        Returns:
+            google.cloud.bigquery.QueryPlanEntry:
+                Query plan entry parsed from ``resource``
         """
-        records_read = resource.get('recordsRead')
-        if records_read is not None:
-            records_read = int(records_read)
+        entry = cls()
+        entry._properties = resource
+        return entry
 
-        records_written = resource.get('recordsWritten')
-        if records_written is not None:
-            records_written = int(records_written)
+    @property
+    def name(self):
+        """Union[str, None]: Human-readable name of the stage."""
+        return self._properties.get("name")
 
-        return cls(
-            name=resource.get('name'),
-            entry_id=resource.get('id'),
-            wait_ratio_avg=resource.get('waitRatioAvg'),
-            wait_ratio_max=resource.get('waitRatioMax'),
-            read_ratio_avg=resource.get('readRatioAvg'),
-            read_ratio_max=resource.get('readRatioMax'),
-            compute_ratio_avg=resource.get('computeRatioAvg'),
-            compute_ratio_max=resource.get('computeRatioMax'),
-            write_ratio_avg=resource.get('writeRatioAvg'),
-            write_ratio_max=resource.get('writeRatioMax'),
-            records_read=records_read,
-            records_written=records_written,
-            status=resource.get('status'),
-            steps=[QueryPlanEntryStep.from_api_repr(step)
-                   for step in resource.get('steps', ())],
+    @property
+    def entry_id(self):
+        """Union[str, None]: Unique ID for the stage within the plan."""
+        return self._properties.get("id")
+
+    @property
+    def start(self):
+        """Union[Datetime, None]: Datetime when the stage started."""
+        if self._properties.get("startMs") is None:
+            return None
+        return _helpers._datetime_from_microseconds(
+            int(self._properties.get("startMs")) * 1000.0
         )
+
+    @property
+    def end(self):
+        """Union[Datetime, None]: Datetime when the stage ended."""
+        if self._properties.get("endMs") is None:
+            return None
+        return _helpers._datetime_from_microseconds(
+            int(self._properties.get("endMs")) * 1000.0
+        )
+
+    @property
+    def input_stages(self):
+        """List(int): Entry IDs for stages that were inputs for this stage."""
+        if self._properties.get("inputStages") is None:
+            return []
+        return [
+            _helpers._int_or_none(entry)
+            for entry in self._properties.get("inputStages")
+        ]
+
+    @property
+    def parallel_inputs(self):
+        """Union[int, None]: Number of parallel input segments within
+        the stage.
+        """
+        return _helpers._int_or_none(self._properties.get("parallelInputs"))
+
+    @property
+    def completed_parallel_inputs(self):
+        """Union[int, None]: Number of parallel input segments completed."""
+        return _helpers._int_or_none(self._properties.get("completedParallelInputs"))
+
+    @property
+    def wait_ms_avg(self):
+        """Union[int, None]: Milliseconds the average worker spent waiting to
+        be scheduled.
+        """
+        return _helpers._int_or_none(self._properties.get("waitMsAvg"))
+
+    @property
+    def wait_ms_max(self):
+        """Union[int, None]: Milliseconds the slowest worker spent waiting to
+        be scheduled.
+        """
+        return _helpers._int_or_none(self._properties.get("waitMsMax"))
+
+    @property
+    def wait_ratio_avg(self):
+        """Union[float, None]: Ratio of time the average worker spent waiting
+        to be scheduled, relative to the longest time spent by any worker in
+        any stage of the overall plan.
+        """
+        return self._properties.get("waitRatioAvg")
+
+    @property
+    def wait_ratio_max(self):
+        """Union[float, None]: Ratio of time the slowest worker spent waiting
+        to be scheduled, relative to the longest time spent by any worker in
+        any stage of the overall plan.
+        """
+        return self._properties.get("waitRatioMax")
+
+    @property
+    def read_ms_avg(self):
+        """Union[int, None]: Milliseconds the average worker spent reading
+        input.
+        """
+        return _helpers._int_or_none(self._properties.get("readMsAvg"))
+
+    @property
+    def read_ms_max(self):
+        """Union[int, None]: Milliseconds the slowest worker spent reading
+        input.
+        """
+        return _helpers._int_or_none(self._properties.get("readMsMax"))
+
+    @property
+    def read_ratio_avg(self):
+        """Union[float, None]: Ratio of time the average worker spent reading
+        input, relative to the longest time spent by any worker in any stage
+        of the overall plan.
+        """
+        return self._properties.get("readRatioAvg")
+
+    @property
+    def read_ratio_max(self):
+        """Union[float, None]: Ratio of time the slowest worker spent reading
+        to be scheduled, relative to the longest time spent by any worker in
+        any stage of the overall plan.
+        """
+        return self._properties.get("readRatioMax")
+
+    @property
+    def compute_ms_avg(self):
+        """Union[int, None]: Milliseconds the average worker spent on CPU-bound
+        processing.
+        """
+        return _helpers._int_or_none(self._properties.get("computeMsAvg"))
+
+    @property
+    def compute_ms_max(self):
+        """Union[int, None]: Milliseconds the slowest worker spent on CPU-bound
+        processing.
+        """
+        return _helpers._int_or_none(self._properties.get("computeMsMax"))
+
+    @property
+    def compute_ratio_avg(self):
+        """Union[float, None]: Ratio of time the average worker spent on
+        CPU-bound processing, relative to the longest time spent by any
+        worker in any stage of the overall plan.
+        """
+        return self._properties.get("computeRatioAvg")
+
+    @property
+    def compute_ratio_max(self):
+        """Union[float, None]: Ratio of time the slowest worker spent on
+        CPU-bound processing, relative to the longest time spent by any
+        worker in any stage of the overall plan.
+        """
+        return self._properties.get("computeRatioMax")
+
+    @property
+    def write_ms_avg(self):
+        """Union[int, None]: Milliseconds the average worker spent writing
+        output data.
+        """
+        return _helpers._int_or_none(self._properties.get("writeMsAvg"))
+
+    @property
+    def write_ms_max(self):
+        """Union[int, None]: Milliseconds the slowest worker spent writing
+        output data.
+        """
+        return _helpers._int_or_none(self._properties.get("writeMsMax"))
+
+    @property
+    def write_ratio_avg(self):
+        """Union[float, None]: Ratio of time the average worker spent writing
+        output data, relative to the longest time spent by any worker in any
+        stage of the overall plan.
+        """
+        return self._properties.get("writeRatioAvg")
+
+    @property
+    def write_ratio_max(self):
+        """Union[float, None]: Ratio of time the slowest worker spent writing
+        output data, relative to the longest time spent by any worker in any
+        stage of the overall plan.
+        """
+        return self._properties.get("writeRatioMax")
+
+    @property
+    def records_read(self):
+        """Union[int, None]: Number of records read by this stage."""
+        return _helpers._int_or_none(self._properties.get("recordsRead"))
+
+    @property
+    def records_written(self):
+        """Union[int, None]: Number of records written by this stage."""
+        return _helpers._int_or_none(self._properties.get("recordsWritten"))
+
+    @property
+    def status(self):
+        """Union[str, None]: status of this stage."""
+        return self._properties.get("status")
+
+    @property
+    def shuffle_output_bytes(self):
+        """Union[int, None]: Number of bytes written by this stage to
+        intermediate shuffle.
+        """
+        return _helpers._int_or_none(self._properties.get("shuffleOutputBytes"))
+
+    @property
+    def shuffle_output_bytes_spilled(self):
+        """Union[int, None]: Number of bytes written by this stage to
+        intermediate shuffle and spilled to disk.
+        """
+        return _helpers._int_or_none(self._properties.get("shuffleOutputBytesSpilled"))
+
+    @property
+    def steps(self):
+        """List(QueryPlanEntryStep): List of step operations performed by
+        each worker in the stage.
+        """
+        return [
+            QueryPlanEntryStep.from_api_repr(step)
+            for step in self._properties.get("steps", [])
+        ]
+
+
+class TimelineEntry(object):
+    """TimelineEntry represents progress of a query job at a particular
+    point in time.
+
+    See
+    https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs
+    for the underlying API representation within query statistics.
+
+    """
+
+    def __init__(self):
+        self._properties = {}
+
+    @classmethod
+    def from_api_repr(cls, resource):
+        """Factory: construct instance from the JSON repr.
+
+        Args:
+            resource(Dict[str: object]):
+                QueryTimelineSample representation returned from API
+
+        Returns:
+            google.cloud.bigquery.TimelineEntry:
+                Timeline sample parsed from ``resource``
+        """
+        entry = cls()
+        entry._properties = resource
+        return entry
+
+    @property
+    def elapsed_ms(self):
+        """Union[int, None]: Milliseconds elapsed since start of query
+        execution."""
+        return _helpers._int_or_none(self._properties.get("elapsedMs"))
+
+    @property
+    def active_units(self):
+        """Union[int, None]: Current number of input units being processed
+        by workers, reported as largest value since the last sample."""
+        return _helpers._int_or_none(self._properties.get("activeUnits"))
+
+    @property
+    def pending_units(self):
+        """Union[int, None]: Current number of input units remaining for
+        query stages active at this sample time."""
+        return _helpers._int_or_none(self._properties.get("pendingUnits"))
+
+    @property
+    def completed_units(self):
+        """Union[int, None]: Current number of input units completed by
+        this query."""
+        return _helpers._int_or_none(self._properties.get("completedUnits"))
+
+    @property
+    def slot_millis(self):
+        """Union[int, None]: Cumulative slot-milliseconds consumed by
+        this query."""
+        return _helpers._int_or_none(self._properties.get("totalSlotMs"))
+
+
+class UnknownJob(_AsyncJob):
+    """A job whose type cannot be determined."""
+
+    @classmethod
+    def from_api_repr(cls, resource, client):
+        """Construct an UnknownJob from the JSON representation.
+
+        Args:
+            resource (dict): JSON representation of a job.
+            client (google.cloud.bigquery.client.Client):
+                Client connected to BigQuery API.
+
+        Returns:
+            UnknownJob: Job corresponding to the resource.
+        """
+        job_ref_properties = resource.get("jobReference", {"projectId": client.project})
+        job_ref = _JobReference._from_api_repr(job_ref_properties)
+        job = cls(job_ref, client)
+        # Populate the job reference with the project, even if it has been
+        # redacted, because we know it should equal that of the request.
+        resource["jobReference"] = job_ref_properties
+        job._properties = resource
+        return job
